@@ -16,7 +16,7 @@ router.post("/failure", (req, res) => {
 
 });
 
-router.post('/api/payu/webhook', async (req, res) => {
+router.post('/webhook', async (req, res) => {
   try{
 
   const payload = req.body;
