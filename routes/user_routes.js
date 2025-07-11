@@ -1,0 +1,20 @@
+const express = require("express")
+const router = express.Router()
+const {register_user,verify_user,login_user,user_dashboard, logout,change_password,forgot_password_link,refresh_access_token,complete_profile,change_phone,edit_profile_seller,edit_profile_buyer} = require("../controllers/user_controllers") 
+const {auth,isAdmin,isBuyer,isSeller} = require("../middleware/auth")
+const {auth_limiter} = require("../middleware/auth_limiter")
+
+router.post("/register",auth_limiter,register_user)
+router.post("/verify/:token",verify_user)
+router.post("/login",auth_limiter,login_user)
+router.get("/dashboard",auth,user_dashboard)
+router.post("logout",logout)
+router.post("/forgot-password",forgot_password_link)
+router.post("/change-password/:token",change_password)
+router.post("/refresh",refresh_access_token)
+router.post("/change-phone",auth,change_phone)
+router.put("/edit-profile-seller",auth,isSeller,edit_profile_seller)
+router.put("/edit-profile-buyer",auth,isBuyer,edit_profile_buyer)
+router.post("/complete-profile",auth,complete_profile)
+
+module.exports = router

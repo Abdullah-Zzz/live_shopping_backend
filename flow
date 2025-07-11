@@ -1,0 +1,100 @@
+🧱 1. Core Components
+Component	Description	You Will Create	Tech Stack
+ Authentication	Buyers, Sellers, Admins	Register/Login APIs, JWT system	Node.js, Express, JWT, bcrypt
+ User Roles	Separate logic for buyers & sellers	Middleware, Role-based routes	MongoDB (User model)
+ Product Management	Sellers upload/manage products	Product APIs	MongoDB (Product model)
+ Cart & Orders	Buyers add to cart, place orders	Cart/order APIs	MongoDB (Order model)
+ Live Streaming	Sellers stream to promote products	Stream token API, LiveSession model	Agora / Mux, Socket.IO
+ Live Chat	Buyers chat during live	Real-time socket-based chat	Socket.IO
+ Real-Time Product Highlight	Seller features a product live	Emit product info to viewers	Socket.IO
+ Checkout & Payment	Buyers pay for products	Payment API (later)	Stripe or mock system
+ Admin Panel	View all users/products/orders	APIs + Admin dashboard	React + Protected Routes
+ Project Folder Structure (Backend)
+
+/backend
+├── controllers/
+│   ├── authController.js
+│   ├── productController.js
+│   ├── orderController.js
+│   ├── liveStreamController.js
+├── models/
+│   ├── User.js
+│   ├── Product.js
+│   ├── Order.js
+│   ├── LiveSession.js
+├── routes/
+│   ├── auth.js
+│   ├── products.js
+│   ├── orders.js
+│   ├── livestream.js
+├── utils/
+│   ├── generateToken.js
+│   ├── authMiddleware.js
+├── config/
+│   ├── db.js
+├── server.js
+├── .env
+
+ Tools & Services Overview
+Feature	Tool/Service
+Server	Node.js + Express
+Database	MongoDB (host on MongoDB Atlas)
+Auth	JWT + bcrypt
+Real-time Chat & Product Highlight	Socket.IO
+Live Streaming	Agora (free up to 10k mins/month) or Mux
+Payment (Later)	Stripe
+Hosting (Backend)	Render / Railway / Vercel (for API only)
+Deployment (Database)	MongoDB Atlas
+Admin Panel (Optional)	React.js
+iOS App	Swift / React Native (frontend only; calls your backend)
+Development Roadmap (Backend Focused)
+Phase 1: Setup & User Management
+
+    Setup project + MongoDB
+
+    Register/Login + JWT
+
+    Middleware for role checks
+
+ Phase 2: Product & Order APIs
+
+    Product CRUD for sellers
+
+    Cart + order creation
+
+    Buyer: View products, place order
+
+    Admin: View all
+
+Phase 3: Live Streaming Backend
+
+    Seller starts stream: create live session
+
+    Generate token via Agora API
+
+    Save live session info in DB
+
+ Phase 4: Socket.IO Real-Time Logic
+
+    Chat: Join stream room, send/receive messages
+
+    Highlight product: seller emits, buyers receive
+
+ Phase 5: Deployment & Testing
+
+    Host backend on Render
+
+    DB on MongoDB Atlas
+
+    Test full flow: register > upload product > stream > buy
+
+ System Flow Diagram (Simple Version)
+
+Buyer App → [Backend API] ← Seller App
+              ↓      ↑
+        MongoDB (users, products, orders)
+              ↓
+       [Socket.IO Server] ←→ Chat/Product Highlights
+              ↓
+         Agora (Video Streaming Service)
+
