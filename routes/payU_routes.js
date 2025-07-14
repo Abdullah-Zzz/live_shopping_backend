@@ -18,7 +18,7 @@ router.post("/failure", (req, res) => {
 
 router.post('/webhook', async (req, res) => {
   try{
-
+  console.log("webhook")
   const payload = req.body;
   const receivedHash = payload.hash;
 

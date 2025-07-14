@@ -4,6 +4,7 @@ const order_schema = require("../models/order_schema")
 const mongoose = require("mongoose")
 const crypto = require("crypto")
 const payuClient = require("./payU_config");
+const joi = require("joi")
 
 const place_order = async (req, res) => {
   try {
