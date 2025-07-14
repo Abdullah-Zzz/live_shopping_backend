@@ -3,21 +3,21 @@ const mongoose = require("mongoose");
 const orderSchema = new mongoose.Schema({
   buyer: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: "User",
+    ref: "uesrs",
     required: true
   },
   items: [
     {
       product: {
-        _id: mongoose.Schema.Types.ObjectId,
-        name: String,
-        price: Number,
-        images: [String],
-        seller: {
-          type: mongoose.Schema.Types.ObjectId,
-          ref: "User"
-        }
+        type: mongoose.Schema.Types.ObjectId,
       },
+      price: Number,
+      name: String,
+      seller: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "users"
+      },
+      image: String,
       quantity: {
         type: Number,
         required: true,

@@ -42,8 +42,7 @@ const place_order = async (req, res) => {
     if (payment?.method && !["cash_on_delivery", "pay_u"].includes(payment.method)) {
       return res.status(400).json({ message: "Invalid payment method." });
     }
-
-    if (payment.method === "cash_on_delivery") {
+      if (payment.method === "cash_on_delivery") {
       const new_order = new order_schema({
         buyer: buyerId,
         items: verifiedItems,
@@ -189,11 +188,115 @@ const edit_order = async (req, res) => {
     return res.status(500).json({ message: "Internal server error" });
   }
 }
+const change_order_status = async (req, res) => {
+  const schema = joi.object({
+    status: joi.string()
+      .valid('pending', 'processing', 'shipped', 'delivered', 'cancelled')
+      .required()
+      .messages({
+        'any.required': 'Status is required',
+        'any.only': 'Status must be one of: pending, processing, shipped, delivered, cancelled'
+      }),
+    id: joi.string()
+      .custom((value, helpers) => {
+        if (!mongoose.Types.ObjectId.isValid(value)) {
+          return helpers.error('any.invalid');
+        }
+        return value;
+      })
+      .required()
+      .messages({
+        'any.invalid': 'Invalid order ID format',
+        'any.required': 'Order ID is required'
+      })
+  });
 
+  const { error } = schema.validate({
+    status: req.body.status,
+    id: req.params.id
+  });
+
+  if (error) {
+    return res.status(400).json({
+      success: false,
+      message: error.details[0].message,
+      code: 'VALIDATION_ERROR'
+    });
+  }
+  // 2. Status Transition Validation
+  const validTransitions = {
+    pending: ['processing', 'cancelled'],
+    processing: ['shipped', 'cancelled'],
+    shipped: ['delivered'],
+    delivered: [],
+    cancelled: []
+  };
+
+  try {
+    const order = await order_schema.findById(req.params.id).select('status');
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        message: 'Order not found',
+        code: 'ORDER_NOT_FOUND'
+      });
+    }
+
+    if (!validTransitions[order.status].includes(req.body.status)) {
+      return res.status(409).json({
+        success: false,
+        message: `Cannot change status from ${order.status} to ${req.body.status}`,
+        code: 'INVALID_STATUS_TRANSITION',
+        validNextStatuses: validTransitions[order.status]
+      });
+    }
+
+    const updatedOrder = await order_schema.findByIdAndUpdate(
+      req.params.id,
+      { 
+        status: req.body.status,
+        $push: {
+          statusHistory: {
+            status: req.body.status,
+            changedAt: new Date(),
+            changedBy: req.user.id 
+          }
+        }
+      },
+      { new: true }
+    );
+
+    console.log(`Order ${req.params.id} status changed from ${order.status} to ${req.body.status} by ${req.user.id}`);
+
+    return res.status(200).json({
+      success: true,
+      message: 'Order status updated successfully',
+      data: {
+        previousStatus: order.status,
+        newStatus: updatedOrder.status
+      }
+    });
+
+  } catch (err) {
+    console.error('Status change error:', {
+      orderId: req.params.id,
+      error: err.message,
+      stack: err.stack
+    });
+
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to update order status',
+      code: 'SERVER_ERROR',
+      systemMessage: process.env.NODE_ENV === 'development' ? err.message : undefined
+    });
+  }
+};
 
 module.exports = {
   place_order,
   view_order,
   delete_order,
-  edit_order
+  edit_order,
+  change_order_status
 }

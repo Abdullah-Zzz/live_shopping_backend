@@ -16,7 +16,7 @@ const CLIENT_URL = process.env.CLIENT_URL;
 
 const register_user = async (req, res) => {
   try {
-    const { name, email, password, role, phone, shopName, description } = req.body;
+    const { name, email, password, role, phone, shopName, description,address } = req.body;
 
     const schema = Joi.object({
       name: Joi.string().min(3).max(30).required(),

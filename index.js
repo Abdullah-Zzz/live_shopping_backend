@@ -17,6 +17,7 @@ const stream_routes = require("./routes/stream_routes")
 const chatRoutes = require("./routes/chat_routes");
 const pay_routes = require("./routes/payU_routes")
 const app = express()
+const otp_routes = require("./routes/otp_routes")
 const server = http.createServer(app);
 const io = require("socket.io")(server, {
   cors: { origin: "*",credentials: true } 
@@ -39,6 +40,7 @@ app.use("/api/orders",order_routes)
 app.use("/api/stream",stream_routes)
 app.use("/api/chat", chatRoutes);
 app.use("/api/payu", pay_routes);
+app.use("/api",otp_routes)
 
 
 require("./socket/chat")(io);
