@@ -1,40 +1,76 @@
-const user_schema = require("../models/user_schema");
-const register_token_schema = require("../models/register_token");
+const User = require("../models/user_schema");
+const RegisterToken = require("../models/register_token");
+const ResetToken = require("../models/reset_token");
+const Store = require("../models/vendor_store");
 const Joi = require("joi");
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
 const nodemailer = require("nodemailer");
-const reset_token = require("../models/reset_token");
 require("dotenv").config();
 
-const EMAIL = process.env.EMAIL;
-const PASS = process.env.PASS;
-const JWT_ACCESS_SECRET = process.env.JWT_ACCESS_SECRET;
-const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET
-const JWT_SECRET = process.env.JWT_SECRET
-const CLIENT_URL = process.env.CLIENT_URL;
+const {
+  EMAIL,
+  PASS,
+  JWT_ACCESS_SECRET,
+  JWT_REFRESH_SECRET,
+  JWT_SECRET,
+  CLIENT_URL
+} = process.env;
 
-const register_user = async (req, res) => {
+// Helper function for sending emails
+const sendEmail = async (to, subject, html) => {
+  const transporter = nodemailer.createTransport({
+    service: "gmail",
+    auth: { user: EMAIL, pass: PASS }
+  });
+
+  const mailOptions = { from: EMAIL, to, subject, html };
+  await transporter.sendMail(mailOptions);
+};
+
+// Register a new user
+const registerUser = async (req, res) => {
   try {
-    const { name, email, password, role, phone, shopName, description,address } = req.body;
-
     const schema = Joi.object({
       name: Joi.string().min(3).max(30).required(),
       email: Joi.string().email().required(),
       phone: Joi.string().pattern(/^\+?[0-9]{10,15}$/).required(),
-      password: Joi.string().min(8).pattern(/^(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()])/).required(),
+      password: Joi.string().min(8)
+        .pattern(/^(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()])/)
+        .required(),
       role: Joi.string().valid("buyer", "seller").required(),
-      shopName: Joi.string().when("role", { is: "seller", then: Joi.required() }),
-      description: Joi.string().when("role", { is: "seller", then: Joi.required() })
+      shopName: Joi.string().when("role", { 
+        is: "seller", 
+        then: Joi.string().min(2).max(50).required() 
+      }),
+      description: Joi.string().when("role", { 
+        is: "seller", 
+        then: Joi.string().min(10).max(200).required() 
+      }),
+      address: Joi.string().when("role", { 
+        is: "seller", 
+        then: Joi.string().min(5).max(200).required() 
+      })
     });
 
-    const { error } = schema.validate({ name, email, phone, password, role, shopName, description });
-    if (error) return res.status(400).json({ message: error.details[0].message });
+    const { error } = schema.validate(req.body);
+    if (error) {
+      return res.status(400).json({ 
+        success: false,
+        message: error.details[0].message 
+      });
+    }
 
-    const userExists = await user_schema.findOne({ email });
-    if (userExists) return res.status(400).json({ message: "Email already registered." });
+    const { name, email, password, role, phone, shopName, description, address } = req.body;
 
-    const hashedPassword = await bcrypt.hash(password, 10);
+    const userExists = await User.findOne({ email });
+    if (userExists) {
+      return res.status(409).json({ 
+        success: false,
+        message: "Email already registered" 
+      });
+    }
+    const hashedPassword = await bcrypt.hash(password.trim(), 10);
 
     const userData = {
       name,
@@ -42,422 +78,754 @@ const register_user = async (req, res) => {
       phone,
       password: hashedPassword,
       role,
-      isProfileComplete: true,
+      isProfileComplete: role === "buyer" // Sellers need to complete profile
     };
 
     if (role === "seller") {
       userData.sellerInfo = {
         shopName,
-        description
+        description,
+        address
       };
     }
 
     const token = jwt.sign(userData, JWT_SECRET, { expiresIn: "30m" });
-    await register_token_schema.create({ token })
+    await RegisterToken.create({ token });
 
-    const transporter = nodemailer.createTransport({
-      service: "gmail",
-      auth: { user: EMAIL, pass: PASS }
-    });
+    const verificationLink = `${CLIENT_URL}/verify-email/${token}`;
+    const emailHtml = `
+      <p>Hello ${name},</p>
+      <p>Please click the link below to verify your email:</p>
+      <a href="${verificationLink}">Verify Email</a>
+      <p>This link expires in 30 minutes.</p>
+    `;
 
-    const mailOptions = {
-      from: EMAIL,
-      to: email,
-      subject: "Verify Your Account",
-      html: `
-        <p>Hello ${name},</p>
-        <p>Click the link below to verify and complete your registration:</p>
-        <a href="${CLIENT_URL}/register/link/${token}">${CLIENT_URL}/register/link/${token}</a>
-        <p>This link expires in 30 minutes.</p>
-      `
-    };
+    await sendEmail(email, "Verify Your Email", emailHtml);
 
-    transporter.sendMail(mailOptions, (err) => {
-      if (err) {
-        console.error("Mail Error:", err);
-        return res.status(500).json({ message: "Failed to send verification email." });
-      }
-      return res.status(200).json({ message: "Verification email sent. Check your inbox." });
+    return res.status(200).json({ 
+      success: true,
+      message: "Verification email sent. Please check your inbox." 
     });
 
   } catch (err) {
-    console.error("Register Error:", err);
-    res.status(500).json({ message: "Server error. Try again later." });
+    console.error("Registration Error:", err);
+    return res.status(500).json({ 
+      success: false,
+      message: "Internal server error" 
+    });
   }
 };
 
-const verify_user = async (req, res) => {
+// Verify user email
+const verifyUser = async (req, res) => {
   try {
     const { token } = req.params;
-    let decode;
 
-    const storedToken = await register_token_schema.findOne({ token });
+    const storedToken = await RegisterToken.findOne({ token });
     if (!storedToken) {
-      return res.status(400).json({ message: "Invalid or expired token." });
+      return res.status(400).json({ 
+        success: false,
+        message: "Invalid or expired token" 
+      });
     }
 
+    let decoded;
     try {
-      decode = jwt.verify(token, JWT_SECRET);
+      decoded = jwt.verify(token, JWT_SECRET);
     } catch (err) {
       if (err.name === "TokenExpiredError") {
-        return res.status(401).json({ message: "Token has expired." });
+        return res.status(401).json({ 
+          success: false,
+          message: "Token has expired" 
+        });
       }
-      return res.status(400).json({ message: "Invalid token." });
+      return res.status(400).json({ 
+        success: false,
+        message: "Invalid token" 
+      });
     }
 
-    const existingUser = await user_schema.findOne({ email: decode.email });
+    const existingUser = await User.findOne({ email: decoded.email });
     if (existingUser) {
-      return res.status(400).json({ message: "Email already registered." });
+      return res.status(409).json({ 
+        success: false,
+        message: "Email already registered" 
+      });
     }
 
-    const user = new user_schema(decode);
+    const user = new User(decoded);
     await user.save();
+    await RegisterToken.deleteOne({ token });
 
-    await register_token_schema.deleteOne({ token });
-
-    res.status(200).json({ message: "Registration complete. You can now log in." });
+    return res.status(201).json({ 
+      success: true,
+      message: "Registration complete. You can now log in." 
+    });
 
   } catch (err) {
     console.error("Verification Error:", err);
-    res.status(500).json({ message: "Something went wrong during verification." });
+    return res.status(500).json({ 
+      success: false,
+      message: "Internal server error" 
+    });
   }
 };
 
-const login_user = async (req, res) => {
+// User login
+const loginUser = async (req, res) => {
   try {
+    const schema = Joi.object({
+      email: Joi.string().email().required(),
+      password: Joi.string().required()
+    });
+
+    const { error } = schema.validate(req.body);
+    if (error) {
+      return res.status(400).json({ 
+        success: false,
+        message: error.details[0].message 
+      });
+    }
+
     const { email, password } = req.body;
 
-    const user = await user_schema.findOne({ email }).select("+password");
-    if (!user) return res.status(404).json({ message: "Email not found." });
-
-    if(password ==="googleOauth"){
-      return res.status(401).json({ message: "Please use Google sign in." });
+    const user = await User.findOne({ email }).select("+password");
+    if (!user) {
+      return res.status(404).json({ 
+        success: false,
+        message: "User not found" 
+      });
     }
-    const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) return res.status(401).json({ message: "Invalid credentials." });
 
-    const refresh_token = jwt.sign(
+    if (password === "googleOauth") {
+      return res.status(401).json({ 
+        success: false,
+        message: "Please use Google sign-in" 
+      });
+    }
+    const isMatch = await bcrypt.compare(password.trim(), user.password);
+    if (!isMatch) {
+      return res.status(401).json({ 
+        success: false,
+        message: "Invalid credentials" 
+      });
+    }
+
+    if (!user.isActive) {
+      return res.status(403).json({ 
+        success: false,
+        message: "Account is deactivated" 
+      });
+    }
+
+    const refreshToken = jwt.sign(
       { id: user._id, email: user.email, role: user.role },
       JWT_REFRESH_SECRET,
       { expiresIn: "7d" }
     );
 
-    const access_token = jwt.sign({ id: user._id, email: user.email, role: user.role },JWT_ACCESS_SECRET,{expiresIn : "15min"}) 
+    const accessToken = jwt.sign(
+      { id: user._id, email: user.email, role: user.role },
+      JWT_ACCESS_SECRET,
+      { expiresIn: "15m" }
+    );
 
-    res.cookie("refresh_token", refresh_token, {
+    res.cookie("refresh_token", refreshToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: "strict",
       maxAge: 7 * 24 * 60 * 60 * 1000
     });
-    res.cookie("access_token",access_token,{
-      httpOnly : true,
-      secure : process.env.NODE_ENV === "production",
-      sameSite : "strict",
-      maxAge : 15 * 60 * 1000
 
-    })
+    res.cookie("access_token", accessToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "strict",
+      maxAge: 15 * 60 * 1000
+    });
 
-    res.status(200).json({
+    // Update last login
+    user.lastLogin = new Date();
+    await user.save();
+
+    return res.status(200).json({
+      success: true,
       message: "Logged in successfully",
       user: {
         id: user._id,
         name: user.name,
         email: user.email,
-        role: user.role
+        role: user.role,
+        avatar: user.avatar,
+        isProfileComplete: user.isProfileComplete
       }
     });
 
-  } catch (error) {
-    console.error("Login Error:", error);
-    res.status(500).json({ message: "Server error. Try again later." });
+  } catch (err) {
+    console.error("Login Error:", err);
+    return res.status(500).json({ 
+      success: false,
+      message: "Internal server error" 
+    });
   }
 };
 
-const user_dashboard = async (req, res) => {
+// User dashboard
+const userDashboard = async (req, res) => {
   try {
-    const { email } = req.user;
-    const user = await user_schema.findOne({ email }).select("-password");
-    if (!user) return res.status(404).json({ message: "User not found." });
+    const user = await User.findById(req.user.id)
+      .select("-password -resetPasswordToken -resetPasswordExpire");
 
-    res.status(200).json({ user });
+    if (!user) {
+      return res.status(404).json({ 
+        success: false,
+        message: "User not found" 
+      });
+    }
+
+    return res.status(200).json({ 
+      success: true,
+      user 
+    });
 
   } catch (err) {
     console.error("Dashboard Error:", err);
-    res.status(500).json({ message: "Server error." });
+    return res.status(500).json({ 
+      success: false,
+      message: "Internal server error" 
+    });
   }
 };
+
+// Logout user
 const logout = async (req, res) => {
   try {
     res.clearCookie("refresh_token", {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production", 
+      secure: process.env.NODE_ENV === "production",
       sameSite: "strict"
     });
+
     res.clearCookie("access_token", {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production", 
+      secure: process.env.NODE_ENV === "production",
       sameSite: "strict"
     });
 
-    res.status(200).json({ message: "Logged out successfully." });
+    return res.status(200).json({ 
+      success: true,
+      message: "Logged out successfully" 
+    });
+
   } catch (err) {
     console.error("Logout Error:", err);
-    res.status(500).json({ message: "Server error." });
+    return res.status(500).json({ 
+      success: false,
+      message: "Internal server error" 
+    });
   }
 };
-const forgot_password_link = async (req, res) => {
+
+// Forgot password - send reset link
+const forgotPassword = async (req, res) => {
   try {
+    const schema = Joi.object({
+      email: Joi.string().email().required()
+    });
+
+    const { error } = schema.validate(req.body);
+    if (error) {
+      return res.status(400).json({ 
+        success: false,
+        message: error.details[0].message 
+      });
+    }
+
     const { email } = req.body;
 
-    const user = await user_schema.findOne({ email });
+    const user = await User.findOne({ email });
     if (!user) {
-      return res.status(404).json({ message: "Email not found" });
+      return res.status(404).json({ 
+        success: false,
+        message: "Email not found" 
+      });
     }
 
     const token = jwt.sign({ email }, JWT_SECRET, { expiresIn: "30m" });
-    await reset_token.create({token})
+    await ResetToken.create({ token });
 
-    const transporter = nodemailer.createTransport({
-      service: "gmail",
-      auth: {
-        user: EMAIL,
-        pass: PASS,
-      },
+    const resetLink = `${CLIENT_URL}/reset-password/${token}`;
+    const emailHtml = `
+      <p>Hello ${user.name},</p>
+      <p>Please click the link below to reset your password:</p>
+      <a href="${resetLink}">Reset Password</a>
+      <p>This link expires in 30 minutes.</p>
+    `;
+
+    await sendEmail(email, "Reset Your Password", emailHtml);
+
+    return res.status(200).json({ 
+      success: true,
+      message: "Password reset email sent" 
     });
 
-    const mailOptions = {
-      from: EMAIL,
-      to: email,
-      subject: "Reset Your Password",
-      html: `
-        <p>Hello ${user.name},</p>
-        <p>Click the link below to reset your password:</p>
-        <a href="${CLIENT_URL}/reset-password/${token}">${CLIENT_URL}/reset-password/${token}</a>
-        <p>This link expires in 30 minutes.</p>
-      `,
-    };
-
-    transporter.sendMail(mailOptions, (err) => {
-      if (err) {
-        console.error("Mail Error:", err);
-        return res.status(500).json({ message: "Failed to send reset email." });
-      }
-
-      return res.status(200).json({ message: "Reset email sent. Check your inbox." });
-    });
   } catch (err) {
     console.error("Forgot Password Error:", err);
-    res.status(500).json({ message: "Server error." });
+    return res.status(500).json({ 
+      success: false,
+      message: "Internal server error" 
+    });
   }
 };
 
-const change_password = async (req, res) => {
-  const { token } = req.params;
-  const { password, confirm_password } = req.body;
-
-  if (password != confirm_password) {
-    return res.status(400).json({ message: "Passwords do not match." });
-  }
-
-  const tokenDoc = await reset_token.findOne({ token });
-  if (!tokenDoc) {
-    return res.status(401).json({ message: "Invalid or expired token." });
-  }
-
-  let decoded;
+// Reset password
+const resetPassword = async (req, res) => {
   try {
-    decoded = jwt.verify(token, JWT_SECRET);
-  } catch (err) {
-    if (err.name === "TokenExpiredError") {
-      return res.status(401).json({ message: "Token has expired." });
+    const schema = Joi.object({
+      password: Joi.string().min(8)
+        .pattern(/^(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()])/)
+        .required(),
+      confirmPassword: Joi.string().valid(Joi.ref("password")).required()
+    });
+
+    const { error } = schema.validate(req.body);
+    if (error) {
+      return res.status(400).json({ 
+        success: false,
+        message: error.details[0].message 
+      });
     }
-    return res.status(400).json({ message: "Invalid token." });
-  }
 
-  const hashedPassword = await bcrypt.hash(password, 10);
+    const { token } = req.params;
+    const { password } = req.body;
 
-  const user = await user_schema.findOneAndUpdate(
-    { email: decoded.email },
-    { $set: { password: hashedPassword } },
-    { new: true }
-  );
+    const tokenDoc = await ResetToken.findOne({ token });
+    if (!tokenDoc) {
+      return res.status(400).json({ 
+        success: false,
+        message: "Invalid or expired token" 
+      });
+    }
 
-  if (!user) {
-    return res.status(404).json({ message: "User not found." });
-  }
-
-  await reset_token.deleteOne({ token });
-
-  return res.status(200).json({ message: "Password updated successfully." });
-};
-
-const refresh_access_token = async (req,res)=>{
-  try{
-    const refresh_token = req.cookies.refresh_token
-    if(!refresh_token) return res.status(401).json({ message: "No refresh token" });
-    try{
-      let decoded = jwt.verify(refresh_token,JWT_REFRESH_SECRET);
-      let data = {
-        id : decoded.id,
-        email : decoded.email,
-        role : decoded.role
+    let decoded;
+    try {
+      decoded = jwt.verify(token, JWT_SECRET);
+    } catch (err) {
+      if (err.name === "TokenExpiredError") {
+        return res.status(401).json({ 
+          success: false,
+          message: "Token has expired" 
+        });
       }
-      const new_access_token = jwt.sign(data,JWT_ACCESS_SECRET,{expiresIn : "15min"})
-      res.cookie("access_token",new_access_token,{
-      httpOnly : true,
-      secure : process.env.NODE_ENV === "production",
-      sameSite : "strict",
-      maxAge : 15 * 60 * 1000
+      return res.status(400).json({ 
+        success: false,
+        message: "Invalid token" 
+      });
+    }
 
-    })
-    res.status(200).json({message : "Token refreshed"})
+    const hashedPassword = await bcrypt.hash(password, 12);
+
+    const user = await User.findOneAndUpdate(
+      { email: decoded.email },
+      { password: hashedPassword },
+      { new: true }
+    );
+
+    if (!user) {
+      return res.status(404).json({ 
+        success: false,
+        message: "User not found" 
+      });
     }
-    catch(err){
-      return res.status(403).json({ message: "Invalid refresh token "+err });
-    }
+
+    await ResetToken.deleteOne({ token });
+
+    return res.status(200).json({ 
+      success: true,
+      message: "Password updated successfully" 
+    });
+
+  } catch (err) {
+    console.error("Reset Password Error:", err);
+    return res.status(500).json({ 
+      success: false,
+      message: "Internal server error" 
+    });
   }
-  catch(err){
-    res.status(500).json({ message: "Server error." });
-  }
-}
-const complete_profile = async (req, res) => {
+};
+
+// Refresh access token
+const refreshAccessToken = async (req, res) => {
   try {
-    const userId = req.user.id;
-    const { role, phone, shopName, description, address } = req.body;
-    const user = await user_schema.findById(userId);
-    if (user.isProfileComplete) {
-      return res.status(400).json({ message: "Profile already completed." });
+    const { refresh_token } = req.cookies;
+    if (!refresh_token) {
+      return res.status(401).json({ 
+        success: false,
+        message: "No refresh token provided" 
+      });
     }
+
+    let decoded;
+    try {
+      decoded = jwt.verify(refresh_token, JWT_REFRESH_SECRET);
+    } catch (err) {
+      return res.status(403).json({ 
+        success: false,
+        message: "Invalid refresh token" 
+      });
+    }
+
+    const user = await User.findById(decoded.id);
+    if (!user) {
+      return res.status(404).json({ 
+        success: false,
+        message: "User not found" 
+      });
+    }
+
+    const newAccessToken = jwt.sign(
+      { id: user._id, email: user.email, role: user.role },
+      JWT_ACCESS_SECRET,
+      { expiresIn: "15m" }
+    );
+
+    res.cookie("access_token", newAccessToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "strict",
+      maxAge: 15 * 60 * 1000
+    });
+
+    return res.status(200).json({ 
+      success: true,
+      message: "Access token refreshed" 
+    });
+
+  } catch (err) {
+    console.error("Refresh Token Error:", err);
+    return res.status(500).json({ 
+      success: false,
+      message: "Internal server error" 
+    });
+  }
+};
+
+// Complete user profile
+const completeProfile = async (req, res) => {
+  try {
     const schema = Joi.object({
       role: Joi.string().valid("buyer", "seller").required(),
       phone: Joi.string().pattern(/^\+?[0-9]{10,15}$/).required(),
       shopName: Joi.when("role", {
         is: "seller",
-        then: Joi.string().min(2).max(50).required(), 
+        then: Joi.string().min(2).max(50).required(),
         otherwise: Joi.forbidden()
       }),
       description: Joi.when("role", {
         is: "seller",
-        then: Joi.string().min(2).max(200).required(),
+        then: Joi.string().min(10).max(200).required(),
         otherwise: Joi.forbidden()
       }),
       address: Joi.when("role", {
         is: "seller",
-        then: Joi.string().min(2).max(200).required(),
+        then: Joi.string().min(5).max(200).required(),
         otherwise: Joi.forbidden()
-      }),
+      })
     });
 
-    const { error } = schema.validate({ role, phone, shopName, description, address });
-    if (error) return res.status(400).json({ message: error.details[0].message });
-
-    const updateData = { role, phone, isProfileComplete: true };
-    if (role === "seller") {
-      updateData.sellerInfo = { shopName, description, address };
-    } else {
-      updateData.sellerInfo = undefined; 
+    const { error } = schema.validate(req.body);
+    if (error) {
+      return res.status(400).json({ 
+        success: false,
+        message: error.details[0].message 
+      });
     }
 
-    const updatedUser = await user_schema.findByIdAndUpdate(userId, updateData, { new: true });
-    if (!updatedUser) return res.status(404).json({ message: "User not found." });
+    const userId = req.user.id;
+    const { role, phone, shopName, description, address } = req.body;
 
-    res.status(200).json({ message: "Profile completed.", user: updatedUser });
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ 
+        success: false,
+        message: "User not found" 
+      });
+    }
+
+    if (user.isProfileComplete) {
+      return res.status(400).json({ 
+        success: false,
+        message: "Profile already completed" 
+      });
+    }
+
+    const updateData = { 
+      role, 
+      phone, 
+      isProfileComplete: true 
+    };
+
+    if (role === "seller") {
+      updateData.sellerInfo = { 
+        shopName, 
+        description, 
+        address 
+      };
+    }
+
+    const updatedUser = await User.findByIdAndUpdate(
+      userId, 
+      updateData, 
+      { new: true }
+    ).select("-password");
+
+    return res.status(200).json({ 
+      success: true,
+      message: "Profile completed successfully",
+      user: updatedUser
+    });
+
   } catch (err) {
     console.error("Complete Profile Error:", err);
-    res.status(500).json({ message: "Server error." });
+    return res.status(500).json({ 
+      success: false,
+      message: "Internal server error" 
+    });
   }
 };
-const edit_profile_buyer = async (req, res) => {
+
+// Edit buyer profile
+const editBuyerProfile = async (req, res) => {
   try {
-    const userId = req.user.id;
-    const { name } = req.body;
     const schema = Joi.object({
       name: Joi.string().min(2).max(50).required(),
+      phone: Joi.string().pattern(/^\+?[0-9]{10,15}$/).required()
     });
-    const { error } = schema.validate({ name });
-    if (error) return res.status(400).json({ message: error.details[0].message });
-    const updatedUser = await user_schema.findByIdAndUpdate(
+
+    const { error } = schema.validate(req.body);
+    if (error) {
+      return res.status(400).json({ 
+        success: false,
+        message: error.details[0].message 
+      });
+    }
+
+    const userId = req.user.id;
+    const { name, phone } = req.body;
+
+    const updatedUser = await User.findByIdAndUpdate(
       userId,
-      { name },
+      { name, phone },
       { new: true }
     ).select("-password");
-    if (!updatedUser) return res.status(404).json({ message: "User not found." });
-    res.status(200).json({ message: "Profile updated successfully.", user: updatedUser });
+
+    if (!updatedUser) {
+      return res.status(404).json({ 
+        success: false,
+        message: "User not found" 
+      });
+    }
+
+    return res.status(200).json({ 
+      success: true,
+      message: "Profile updated successfully",
+      user: updatedUser
+    });
+
   } catch (err) {
-    console.error("Edit Profile Error:", err);
-    res.status(500).json({ message: "Server error." });
+    console.error("Edit Buyer Profile Error:", err);
+    return res.status(500).json({ 
+      success: false,
+      message: "Internal server error" 
+    });
   }
 };
-const edit_profile_seller = async (req, res) => {
+
+// Edit seller profile
+const editSellerProfile = async (req, res) => {
   try {
-    const userId = req.user.id;
-    const { name, shopName, description, address } = req.body;
     const schema = Joi.object({
       name: Joi.string().min(2).max(50).required(),
+      phone: Joi.string().pattern(/^\+?[0-9]{10,15}$/).required(),
       shopName: Joi.string().min(2).max(50).required(),
-      description: Joi.string().min(2).max(200).required(),
-      address: Joi.string().min(2).max(200).required(), 
+      description: Joi.string().min(10).max(200).required(),
+      address: Joi.string().min(5).max(200).required(),
+      logo: Joi.string().uri().optional(),
+      socialMedia: Joi.object({
+        facebook: Joi.string().uri().optional(),
+        instagram: Joi.string().uri().optional(),
+        twitter: Joi.string().uri().optional(),
+        youtube: Joi.string().uri().optional()
+      }).optional(),
+      paymentInfo: Joi.object({
+        bankName: Joi.string().required(),
+        accountNumber: Joi.string().required(),
+        accountName: Joi.string().required(),
+        taxId: Joi.string().optional()
+      }).optional()
     });
-    const { error } = schema.validate({ name, shopName, description, address });
-    if (error) return res.status(400).json({ message: error.details[0].message });
-    const updatedUser = await user_schema.findByIdAndUpdate(
+
+    const { error } = schema.validate(req.body);
+    if (error) {
+      return res.status(400).json({ 
+        success: false,
+        message: error.details[0].message 
+      });
+    }
+
+    const userId = req.user.id;
+    const { 
+      name, 
+      phone, 
+      shopName, 
+      description, 
+      address,
+      logo,
+      socialMedia,
+      paymentInfo
+    } = req.body;
+
+    const updateData = {
+      name,
+      phone,
+      sellerInfo: {
+        shopName,
+        description,
+        address
+      }
+    };
+
+    if (logo) {
+      updateData.sellerInfo.logo = logo;
+    }
+
+    if (socialMedia) {
+      updateData.sellerInfo.socialMedia = socialMedia;
+    }
+
+    if (paymentInfo) {
+      updateData.sellerInfo.paymentInfo = paymentInfo;
+    }
+
+    const updatedUser = await User.findByIdAndUpdate(
       userId,
-      {
-        name,
-        sellerInfo: {
-          shopName,
-          description,
-          address
-        },
-        isProfileComplete: true
-      },
+      updateData,
       { new: true }
     ).select("-password");
-    if (!updatedUser) return res.status(404).json({ message: "User not  found." });
-    res.status(200).json({ message: "Profile updated successfully.", user: updatedUser });
+
+    if (!updatedUser) {
+      return res.status(404).json({ 
+        success: false,
+        message: "User not found" 
+      });
+    }
+
+    // Update store if exists
+    const store = await Store.findOne({ seller: userId });
+    if (store) {
+      store.storeName = shopName;
+      store.description = description;
+      store.contact.phone = phone;
+      
+      if (logo) {
+        store.media.logo = logo;
+      }
+      
+      if (socialMedia) {
+        store.socialMedia = socialMedia;
+      }
+      
+      if (paymentInfo) {
+        store.businessInfo.bankDetails = {
+          accountName: paymentInfo.accountName,
+          accountNumber: paymentInfo.accountNumber,
+          bankName: paymentInfo.bankName
+        };
+      }
+      
+      await store.save();
+    }
+
+    return res.status(200).json({ 
+      success: true,
+      message: "Profile updated successfully",
+      user: updatedUser
+    });
+
   } catch (err) {
-    console.error("Edit Profile Error:", err);
-    res.status(500).json({ message: "Server error." });
+    console.error("Edit Seller Profile Error:", err);
+    return res.status(500).json({ 
+      success: false,
+      message: "Internal server error" 
+    });
   }
 };
-const change_phone = async (req, res) => {
+
+// Change phone number
+const changePhone = async (req, res) => {
   try {
+    const schema = Joi.object({
+      phone: Joi.string().pattern(/^\+?[0-9]{10,15}$/).required()
+    });
+
+    const { error } = schema.validate(req.body);
+    if (error) {
+      return res.status(400).json({ 
+        success: false,
+        message: error.details[0].message 
+      });
+    }
+
     const userId = req.user.id;
     const { phone } = req.body;
 
-    const schema = Joi.object({
-      phone: Joi.string().pattern(/^\+?[0-9]{10,15}$/).required(),
-    });
-
-    const { error } = schema.validate({ phone });
-    if (error) return res.status(400).json({ message: error.details[0].message });
-
-    const updatedUser = await user_schema.findByIdAndUpdate(
+    const updatedUser = await User.findByIdAndUpdate(
       userId,
       { phone },
       { new: true }
     ).select("-password");
 
-    if (!updatedUser) return res.status(404).json({ message: "User not found." });
+    if (!updatedUser) {
+      return res.status(404).json({ 
+        success: false,
+        message: "User not found" 
+      });
+    }
 
-    res.status(200).json({ message: "Phone number updated successfully.", user: updatedUser });
+    // Update store contact if exists
+    if (updatedUser.role === "seller") {
+      await Store.updateOne(
+        { seller: userId },
+        { "contact.phone": phone }
+      );
+    }
+
+    return res.status(200).json({ 
+      success: true,
+      message: "Phone number updated successfully",
+      user: updatedUser
+    });
+
   } catch (err) {
     console.error("Change Phone Error:", err);
-    res.status(500).json({ message: "Server error." });
+    return res.status(500).json({ 
+      success: false,
+      message: "Internal server error" 
+    });
   }
-} 
+};
+
 module.exports = {
-  register_user,
-  verify_user,
-  login_user,
-  user_dashboard,
+  registerUser,
+  verifyUser,
+  loginUser,
+  userDashboard,
   logout,
-  forgot_password_link,
-  change_password,
-  refresh_access_token,
-  complete_profile,
-  change_phone,
-  edit_profile_seller,
-  edit_profile_buyer
+  forgotPassword,
+  resetPassword,
+  refreshAccessToken,
+  completeProfile,
+  editBuyerProfile,
+  editSellerProfile,
+  changePhone
 };

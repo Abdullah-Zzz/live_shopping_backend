@@ -16,6 +16,8 @@ const order_routes = require("./routes/order_routes")
 const stream_routes = require("./routes/stream_routes")
 const chatRoutes = require("./routes/chat_routes");
 const pay_routes = require("./routes/payU_routes")
+const seller_management_routes = require("./routes/seller_management_routes")
+const admin_routes = require("./routes/admin_routes")
 const app = express()
 const otp_routes = require("./routes/otp_routes")
 const server = http.createServer(app);
@@ -31,7 +33,6 @@ app.use(cors({
 }))
 app.use(express.urlencoded({ extended: true }));
 
-
 app.use("/api/users",user_route)
 app.use("/api/products",product_route)
 app.use("/api/cart",cart_route)
@@ -41,6 +42,8 @@ app.use("/api/stream",stream_routes)
 app.use("/api/chat", chatRoutes);
 app.use("/api/payu", pay_routes);
 app.use("/api",otp_routes)
+app.use("/api",seller_management_routes)
+app.use("/api/admin",admin_routes)
 
 
 require("./socket/chat")(io);

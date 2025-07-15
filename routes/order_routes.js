@@ -1,13 +1,22 @@
-const express = require("express")
-const router = express.Router()
-const {place_order,view_order,delete_order,edit_order,change_order_status} = require("../controllers/order_controllers") 
-const {auth,isSeller,isAdmin,isBuyer} = require("../middleware/auth")
-const {auth_limiter} = require("../middleware/auth_limiter")
+const express = require("express");
+const router = express.Router();
+const {
+  placeOrder,
+  viewOrders,
+  deleteOrder,
+  editOrder,
+  changeOrderStatus
+} = require("../controllers/order_controllers");
+const { auth, isSeller, isAdmin, isBuyer } = require("../middleware/auth");
+const { authLimiter } = require("../middleware/auth_limiter");
 
-router.post("/place",auth,place_order)
-router.get("/view",auth,view_order)
-router.delete("/delete/:id",auth,delete_order)
-router.put("/edit",auth,edit_order)
-router.put("/change-status/:id",auth,change_order_status)
+// Buyer order routes
+router.post("/", auth, isBuyer, placeOrder);
+router.get("/", auth, isBuyer, viewOrders);
+router.delete("/:id", auth, isBuyer, deleteOrder);
+router.put("/:id", auth, isBuyer, editOrder);
 
-module.exports = router
+// Seller order routes
+router.put("/:id/status", auth, isSeller, changeOrderStatus);
+
+module.exports = router;

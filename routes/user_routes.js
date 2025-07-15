@@ -1,20 +1,39 @@
-const express = require("express")
-const router = express.Router()
-const {register_user,verify_user,login_user,user_dashboard, logout,change_password,forgot_password_link,refresh_access_token,complete_profile,change_phone,edit_profile_seller,edit_profile_buyer} = require("../controllers/user_controllers") 
-const {auth,isAdmin,isBuyer,isSeller} = require("../middleware/auth")
-const {auth_limiter} = require("../middleware/auth_limiter")
+// routes/user_routes.js
+const express = require("express");
+const router = express.Router();
+const {
+  registerUser,
+  verifyUser,
+  loginUser,
+  userDashboard,
+  logout,
+  forgotPassword,
+  resetPassword,
+  refreshAccessToken,
+  completeProfile,
+  editBuyerProfile,
+  editSellerProfile,
+  changePhone
+} = require("../controllers/user_controllers");
+const { auth, isAdmin, isBuyer, isSeller } = require("../middleware/auth");
+const authLimiter = require("../middleware/auth_limiter"); // Import directly
 
-router.post("/register",auth_limiter,register_user)
-router.post("/verify/:token",verify_user)
-router.post("/login",auth_limiter,login_user)
-router.get("/dashboard",auth,user_dashboard)
-router.post("logout",logout)
-router.post("/forgot-password",forgot_password_link)
-router.post("/change-password/:token",change_password)
-router.post("/refresh",refresh_access_token)
-router.post("/change-phone",auth,change_phone)
-router.put("/edit-profile-seller",auth,isSeller,edit_profile_seller)
-router.put("/edit-profile-buyer",auth,isBuyer,edit_profile_buyer)
-router.post("/complete-profile",auth,complete_profile)
+// Authentication routes
+router.post("/register", authLimiter, registerUser);
+router.get("/verify/:token", verifyUser);
+router.post("/login", authLimiter, loginUser);
+router.post("/logout", auth, logout);
+router.post("/refresh-token", refreshAccessToken);
 
-module.exports = router
+// Password recovery routes
+router.post("/forgot-password", forgotPassword);
+router.post("/reset-password/:token", resetPassword);
+
+// Profile routes
+router.get("/dashboard", auth, userDashboard);
+router.post("/complete-profile", auth, completeProfile);
+router.put("/profile/buyer", auth, isBuyer, editBuyerProfile);
+router.put("/profile/seller", auth, isSeller, editSellerProfile);
+router.put("/change-phone", auth, changePhone);
+
+module.exports = router;
