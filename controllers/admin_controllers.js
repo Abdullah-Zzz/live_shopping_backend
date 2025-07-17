@@ -2,9 +2,9 @@ const User = require("../models/user_schema");
 const Store = require("../models/vendor_store");
 const Order = require("../models/order_schema");
 const Product = require("../models/product_schema");
+const Category = require("../models/category_schema")
 const Joi = require("joi");
 
-// Get all sellers with optional filters
 const getSellers = async (req, res) => {
     try {
         const schema = Joi.object({
@@ -48,11 +48,8 @@ const getSellers = async (req, res) => {
                 .sort(sortOption)
                 .skip((page - 1) * limit)
                 .limit(limit)
-                .select("-password -resetPasswordToken -resetPasswordExpire")
-                .populate({
-                    path: "store",
-                    select: "metrics.totalSales verificationStatus"
-                }),
+                .select("-password -resetPasswordToken -resetPasswordExpire"),
+
             User.countDocuments(filter)
         ]);
 
@@ -110,7 +107,6 @@ const verifySeller = async (req, res) => {
         seller.isSellerVerified = approve;
 
         if (approve) {
-            // Create store if approving
             const storeData = {
                 seller: sellerId,
                 storeName: seller.sellerInfo.shopName,
@@ -135,10 +131,8 @@ const verifySeller = async (req, res) => {
                 verificationStatus: "verified",
                 verificationNotes: notes
             };
-
             await Store.create(storeData);
         } else {
-            // Deactivate store if rejecting
             await Store.updateOne(
                 { seller: sellerId },
                 {
@@ -453,146 +447,146 @@ const getStoreDetails = async (req, res) => {
     }
 };
 const getAllOrders = async (req, res) => {
-        try {
-            const schema = Joi.object({
-                page: Joi.number().integer().min(1).default(1),
-                limit: Joi.number().integer().min(1).max(100).default(10),
-                status: Joi.string().valid(
-                    "pending", "processing", "shipped", "delivered", "cancelled", "returned"
-                ),
-                sellerId: Joi.string(),
-                buyerId: Joi.string(),
-                sortBy: Joi.string().valid("orderedAt", "deliveredAt", "totalAmount").default("orderedAt"),
-                order: Joi.string().valid("asc", "desc").default("desc"),
-                startDate: Joi.date(),
-                endDate: Joi.date()
-            });
+    try {
+        const schema = Joi.object({
+            page: Joi.number().integer().min(1).default(1),
+            limit: Joi.number().integer().min(1).max(100).default(10),
+            status: Joi.string().valid(
+                "pending", "processing", "shipped", "delivered", "cancelled", "returned",""
+            ),
+            sellerId: Joi.string(),
+            buyerId: Joi.string(),
+            sortBy: Joi.string().valid("orderedAt", "deliveredAt", "totalAmount").default("orderedAt"),
+            order: Joi.string().valid("asc", "desc").default("desc"),
+            startDate: Joi.date(),
+            endDate: Joi.date()
+        });
 
-            const { error, value } = schema.validate(req.query);
-            if (error) {
-                return res.status(400).json({
-                    success: false,
-                    message: error.details[0].message
-                });
-            }
-
-            const { page, limit, status, sellerId, buyerId, sortBy, order, startDate, endDate } = value;
-            const filter = {};
-
-            if (status) filter.status = status;
-            if (sellerId) filter["items.seller"] = sellerId;
-            if (buyerId) filter.buyer = buyerId;
-
-            if (startDate || endDate) {
-                filter.orderedAt = {};
-                if (startDate) filter.orderedAt.$gte = new Date(startDate);
-                if (endDate) filter.orderedAt.$lte = new Date(endDate);
-            }
-
-            const sortOption = { [sortBy]: order === "asc" ? 1 : -1 };
-
-            const [orders, total] = await Promise.all([
-                Order.find(filter)
-                    .sort(sortOption)
-                    .skip((page - 1) * limit)
-                    .limit(limit)
-                    .populate("buyer", "name email")
-                    .populate("items.seller", "name email")
-                    .populate("items.store", "storeName"),
-                Order.countDocuments(filter)
-            ]);
-
-            return res.status(200).json({
-                success: true,
-                total,
-                page,
-                pages: Math.ceil(total / limit),
-                orders
-            });
-
-        } catch (err) {
-            console.error("Get All Orders Error:", err);
-            return res.status(500).json({
+        const { error, value } = schema.validate(req.query);
+        if (error) {
+            return res.status(400).json({
                 success: false,
-                message: "Internal server error"
+                message: error.details[0].message
             });
         }
-    };
 
-    // Admin cancel order
-    const adminCancelOrder = async (req, res) => {
-        try {
-            const { id } = req.params;
+        const { page, limit, status, sellerId, buyerId, sortBy, order, startDate, endDate } = value;
+        const filter = {};
 
-            const order = await Order.findById(id);
-            if (!order) {
-                return res.status(404).json({
-                    success: false,
-                    message: "Order not found"
-                });
-            }
+        if (status) filter.status = status;
+        if (sellerId) filter["items.seller"] = sellerId;
+        if (buyerId) filter.buyer = buyerId;
 
-            // Only allow cancellation if order is pending or processing
-            if (!["pending", "processing"].includes(order.status)) {
-                return res.status(400).json({
-                    success: false,
-                    message: `Cannot cancel order with status ${order.status}`
-                });
-            }
+        if (startDate || endDate) {
+            filter.orderedAt = {};
+            if (startDate) filter.orderedAt.$gte = new Date(startDate);
+            if (endDate) filter.orderedAt.$lte = new Date(endDate);
+        }
 
-            // Restore product stocks
-            const productUpdates = order.items.map(item => ({
-                updateOne: {
-                    filter: { _id: item.product },
-                    update: { $inc: { stock: item.quantity } }
-                }
-            }));
+        const sortOption = { [sortBy]: order === "asc" ? 1 : -1 };
 
-            // Update store metrics
-            const storeUpdates = {};
-            order.items.forEach(item => {
-                if (!storeUpdates[item.store]) {
-                    storeUpdates[item.store] = 0;
-                }
-                storeUpdates[item.store] += item.price * item.quantity;
-            });
+        const [orders, total] = await Promise.all([
+            Order.find(filter)
+                .sort(sortOption)
+                .skip((page - 1) * limit)
+                .limit(limit)
+                .populate("buyer", "name email")
+                .populate("items.seller", "name email")
+                .populate("items.store", "storeName"),
+            Order.countDocuments(filter)
+        ]);
 
-            // Update order status
-            order.status = "cancelled";
-            order.items.forEach(item => {
-                item.status = "cancelled";
-            });
+        return res.status(200).json({
+            success: true,
+            total,
+            page,
+            pages: Math.ceil(total / limit),
+            orders
+        });
 
-            order.statusHistory.push({
-                status: "cancelled",
-                changedAt: new Date(),
-                changedBy: req.user.id,
-                notes: "Cancelled by admin"
-            });
+    } catch (err) {
+        console.error("Get All Orders Error:", err);
+        return res.status(500).json({
+            success: false,
+            message: "Internal server error"
+        });
+    }
+};
 
-            await Promise.all([
-                order.save(),
-                Product.bulkWrite(productUpdates),
-                ...Object.entries(storeUpdates).map(([storeId, amount]) =>
-                    Store.findByIdAndUpdate(storeId, {
-                        $inc: { "metrics.totalSales": -amount }
-                    })
-                )
-            ]);
+// Admin cancel order
+const adminCancelOrder = async (req, res) => {
+    try {
+        const { id } = req.params;
 
-            return res.status(200).json({
-                success: true,
-                message: "Order cancelled successfully"
-            });
-
-        } catch (err) {
-            console.error("Admin Cancel Order Error:", err);
-            return res.status(500).json({
+        const order = await Order.findById(id);
+        if (!order) {
+            return res.status(404).json({
                 success: false,
-                message: "Internal server error"
+                message: "Order not found"
             });
         }
-    };
+
+        // Only allow cancellation if order is pending or processing
+        if (!["pending", "processing"].includes(order.status)) {
+            return res.status(400).json({
+                success: false,
+                message: `Cannot cancel order with status ${order.status}`
+            });
+        }
+
+        // Restore product stocks
+        const productUpdates = order.items.map(item => ({
+            updateOne: {
+                filter: { _id: item.product },
+                update: { $inc: { stock: item.quantity } }
+            }
+        }));
+
+        // Update store metrics
+        const storeUpdates = {};
+        order.items.forEach(item => {
+            if (!storeUpdates[item.store]) {
+                storeUpdates[item.store] = 0;
+            }
+            storeUpdates[item.store] += item.price * item.quantity;
+        });
+
+        // Update order status
+        order.status = "cancelled";
+        order.items.forEach(item => {
+            item.status = "cancelled";
+        });
+
+        order.statusHistory.push({
+            status: "cancelled",
+            changedAt: new Date(),
+            changedBy: req.user.id,
+            notes: "Cancelled by admin"
+        });
+
+        await Promise.all([
+            order.save(),
+            Product.bulkWrite(productUpdates),
+            ...Object.entries(storeUpdates).map(([storeId, amount]) =>
+                Store.findByIdAndUpdate(storeId, {
+                    $inc: { "metrics.totalSales": -amount }
+                })
+            )
+        ]);
+
+        return res.status(200).json({
+            success: true,
+            message: "Order cancelled successfully"
+        });
+
+    } catch (err) {
+        console.error("Admin Cancel Order Error:", err);
+        return res.status(500).json({
+            success: false,
+            message: "Internal server error"
+        });
+    }
+};
 // Admin dashboard stats
 const getAdminDashboardStats = async (req, res) => {
     try {
@@ -676,8 +670,205 @@ const getAdminDashboardStats = async (req, res) => {
         });
     }
 
+};
 
-    
+
+const addCategory = async (req, res) => {
+    try {
+        const { name, description, icon } = req.body;
+
+        const schema = Joi.object({
+            name: Joi.string().trim().min(3).max(30).required(),
+            description: Joi.string().allow("", null),
+            icon: Joi.string().allow("", null),
+        });
+
+        const { error } = schema.validate({ name, description, icon });
+        if (error) {
+            return res.status(400).json({ success: false, message: error.details[0].message });
+        }
+
+        const existing = await Category.findOne({ name: { $regex: `^${name}$`, $options: "i" } });
+        if (existing) {
+            return res.status(409).json({ success: false, message: "Category already exists" });
+        }
+
+        const newCategory = new Category({ name, description, icon });
+        await newCategory.save();
+
+        return res.status(201).json({
+            success: true,
+            message: "Category created",
+            category: newCategory,
+        });
+    } catch (err) {
+        console.error("[addCategory] Error:", err);
+
+        if (err.code === 11000) {
+            return res.status(409).json({ success: false, message: "Slug or name must be unique" });
+        }
+
+        return res.status(500).json({ success: false, message: "Server error" });
+    }
+};
+
+
+const deleteCategory = async (req, res) => {
+    try {
+        const { slug } = req.params;
+
+        if (!slug) {
+            return res.status(400).json({
+                success: false,
+                message: "Slug is required",
+            });
+        }
+
+        const category = await Category.findOne({ slug });
+
+        if (!category) {
+            return res.status(404).json({
+                success: false,
+                message: "Category not found",
+            });
+        }
+
+        const inUse = await Product.findOne({ category: category._id });
+        if (inUse) {
+            return res.status(400).json({
+                success: false,
+                message: "Cannot delete a category that is in use",
+            });
+        }
+
+        await Category.deleteOne({ slug });
+
+        return res.status(200).json({
+            success: true,
+            message: "Category deleted successfully",
+        });
+    } catch (err) {
+        console.error("Delete Category Error:", err);
+        return res.status(500).json({
+            success: false,
+            message: "Internal server error",
+        });
+    }
+};
+
+const getCategories = async (req, res) => {
+    try {
+        const categories = await Category.find().sort({ createdAt: -1 });
+
+        if (!categories || categories.length === 0) {
+            return res.status(200).json({
+                success: true,
+                message: "No categories found",
+                categories: [],
+            });
+        }
+
+        return res.status(200).json({
+            success: true,
+            message: "Categories fetched successfully",
+            categories,
+        });
+    } catch (err) {
+        console.error("Get Categories Error:", err);
+        return res.status(500).json({
+            success: false,
+            message: "Internal server error",
+        });
+    }
+};
+
+const updateCategory = async (req, res) => {
+  try {
+    const { slug } = req.params;
+    const { name, description, icon } = req.body;
+
+    const schema = Joi.object({
+      name: Joi.string().min(3).max(30),
+      description: Joi.string().allow("", null),
+      icon: Joi.string().allow("", null),
+    });
+
+    const { error } = schema.validate({ name, description, icon });
+    if (error) {
+      return res.status(400).json({
+        success: false,
+        message: error.details[0].message,
+      });
+    }
+
+    const category = await Category.findOne({ slug });
+    if (!category) {
+      return res.status(404).json({
+        success: false,
+        message: "Category not found",
+      });
+    }
+
+    if (name && name !== category.name) {
+      category.name = name; 
+    }
+    if (description !== undefined) {
+      category.description = description;
+    }
+    if (icon !== undefined) {
+      category.icon = icon;
+    }
+
+    await category.save(); 
+
+    return res.status(200).json({
+      success: true,
+      message: "Category updated successfully",
+      category,
+    });
+  } catch (err) {
+    console.error("Update Category Error:", err);
+
+    if (err.code === 11000) {
+      return res.status(409).json({
+        success: false,
+        message: "A category with this name or slug already exists",
+      });
+    }
+
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+};
+const toggleProduct = async (req, res) => {
+  try {
+    const { product_id } = req.params;
+
+    const product = await Product.findById(product_id);
+    if (!product) {
+      return res.status(404).json({
+        success: false,
+        message: "Product not found",
+      });
+    }
+
+    product.isActive = !product.isActive;
+    await product.save();
+
+    return res.status(200).json({
+      success: true,
+      message: `Product is now ${product.isActive ? "active" : "inactive"}`,
+      product,
+    });
+  } catch (err) {
+    console.error("Toggle Product Error:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
 };
 
 module.exports = {
@@ -690,5 +881,10 @@ module.exports = {
     getStoreDetails,
     getAdminDashboardStats,
     getAllOrders,
-    adminCancelOrder
+    adminCancelOrder,
+    addCategory,
+    deleteCategory,
+    getCategories,
+    updateCategory,
+    toggleProduct
 };

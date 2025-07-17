@@ -35,47 +35,47 @@ const placeOrder = async (req, res) => {
 
     const { error, value } = schema.validate(req.body);
     if (error) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         success: false,
-        message: error.details[0].message 
+        message: error.details[0].message
       });
     }
 
     const { items, shippingAddress, payment } = value;
     const buyerId = req.user.id;
 
-    // Verify products and calculate total
     let totalAmount = 0;
     const verifiedItems = [];
     const productUpdates = [];
     const storeUpdates = new Map();
 
     for (const item of items) {
-      const product = await Product.findById(item.productId)
-        .populate("store", "_id seller");
-      
+      const product = await Product.findById(item.productId).populate("store", "_id seller");
+
       if (!product) {
-        return res.status(404).json({ 
+        return res.status(404).json({
           success: false,
-          message: `Product ${item.productId} not found` 
+          message: `Product ${item.productId} not found`
         });
       }
 
       if (!product.isActive) {
-        return res.status(400).json({ 
+        return res.status(400).json({
           success: false,
-          message: `Product ${product.name} is not available` 
+          message: `Product ${product.name} is not available`
         });
       }
 
       if (product.stock < item.quantity) {
-        return res.status(400).json({ 
+        return res.status(400).json({
           success: false,
-          message: `Not enough stock for ${product.name}` 
+          message: `Not enough stock for ${product.name}`
         });
       }
 
-      // Prepare order item
+      const itemTotal = product.price * item.quantity;
+      totalAmount += itemTotal;
+
       verifiedItems.push({
         product: product._id,
         price: product.price,
@@ -83,12 +83,11 @@ const placeOrder = async (req, res) => {
         seller: product.store.seller,
         store: product.store._id,
         image: product.images[0],
-        quantity: item.quantity
+        quantity: item.quantity,
+        status: "pending",
+        refundStatus: "none"
       });
 
-      totalAmount += product.price * item.quantity;
-
-      // Prepare product stock update
       productUpdates.push({
         updateOne: {
           filter: { _id: product._id },
@@ -96,7 +95,6 @@ const placeOrder = async (req, res) => {
         }
       });
 
-      // Prepare store updates
       if (!storeUpdates.has(product.store._id.toString())) {
         storeUpdates.set(product.store._id.toString(), {
           storeId: product.store._id,
@@ -107,7 +105,7 @@ const placeOrder = async (req, res) => {
       }
 
       const storeUpdate = storeUpdates.get(product.store._id.toString());
-      storeUpdate.amount += product.price * item.quantity;
+      storeUpdate.amount += itemTotal;
       storeUpdate.items.push({
         product: product._id,
         quantity: item.quantity,
@@ -115,46 +113,56 @@ const placeOrder = async (req, res) => {
       });
     }
 
-    // Create order
     const orderData = {
       buyer: buyerId,
       items: verifiedItems,
       totalAmount,
+      discountAmount: 0,
+      shippingAmount: 0,
+      taxAmount: 0,
       shippingAddress,
       payment: {
         method: payment.method,
-        status: payment.method === "cash_on_delivery" ? "pending" : "pending"
+        status: "pending"
       },
-      status: "pending"
+      status: "pending",
+      notes: {
+        buyer: "",
+        seller: "",
+        admin: ""
+      },
+      tracking: {
+        carrier: "",
+        trackingNumber: "",
+        trackingUrl: "",
+        estimatedDelivery: null
+      },
+      flags: {
+        requiresAttention: false,
+        priority: 1,
+        isFraud: false
+      }
     };
 
-    // Handle payment method
-    if (payment.method === "cash_on_delivery") {
-      // For COD, just create the order
-      const order = new Order(orderData);
-      await order.save();
+    const order = new Order(orderData);
+    await order.save();
 
-      // Update product stocks
+    if (payment.method === "cash_on_delivery") {
       await Product.bulkWrite(productUpdates);
 
-      // Update store metrics
-      for (const [_, storeUpdate] of storeUpdates) {
+      for (const [, storeUpdate] of storeUpdates) {
         await Store.findByIdAndUpdate(storeUpdate.storeId, {
-          $push: { orders: { $each: storeUpdate.items } },
+          $push: { orders: order._id },
           $inc: { "metrics.totalSales": storeUpdate.amount }
         });
       }
 
-      return res.status(201).json({ 
+      return res.status(201).json({
         success: true,
         message: "Order placed successfully",
-        orderId: order._id 
+        orderId: order._id
       });
     } else if (payment.method === "pay_u") {
-      // For PayU, create order and prepare payment
-      const order = new Order(orderData);
-      await order.save();
-
       const txnid = `PAYU_${order._id}_${Date.now()}`;
       const saltKey = process.env.PAYU_SALT_64_BIT;
       const merchantKey = process.env.PAYU_MERCHANT_KEY;
@@ -182,12 +190,11 @@ const placeOrder = async (req, res) => {
         paymentData
       });
     }
-
   } catch (err) {
     console.error("Place Order Error:", err);
-    return res.status(500).json({ 
+    return res.status(500).json({
       success: false,
-      message: "Internal server error" 
+      message: "Internal server error"
     });
   }
 };
@@ -207,9 +214,9 @@ const viewOrders = async (req, res) => {
 
     const { error, value } = schema.validate(req.query);
     if (error) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         success: false,
-        message: error.details[0].message 
+        message: error.details[0].message
       });
     }
 
@@ -240,9 +247,9 @@ const viewOrders = async (req, res) => {
 
   } catch (err) {
     console.error("View Orders Error:", err);
-    return res.status(500).json({ 
+    return res.status(500).json({
       success: false,
-      message: "Internal server error" 
+      message: "Internal server error"
     });
   }
 };
@@ -255,24 +262,24 @@ const deleteOrder = async (req, res) => {
 
     const order = await Order.findById(id);
     if (!order) {
-      return res.status(404).json({ 
+      return res.status(404).json({
         success: false,
-        message: "Order not found" 
+        message: "Order not found"
       });
     }
 
     if (order.buyer.toString() !== userId) {
-      return res.status(403).json({ 
+      return res.status(403).json({
         success: false,
-        message: "Unauthorized to delete this order" 
+        message: "Unauthorized to delete this order"
       });
     }
 
     // Only allow deletion if order is pending or processing
     if (!["pending", "processing"].includes(order.status)) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         success: false,
-        message: `Cannot delete order with status ${order.status}` 
+        message: `Cannot delete order with status ${order.status}`
       });
     }
 
@@ -296,23 +303,23 @@ const deleteOrder = async (req, res) => {
     await Promise.all([
       Order.findByIdAndDelete(id),
       Product.bulkWrite(productUpdates),
-      ...Object.entries(storeUpdates).map(([storeId, amount]) => 
+      ...Object.entries(storeUpdates).map(([storeId, amount]) =>
         Store.findByIdAndUpdate(storeId, {
           $inc: { "metrics.totalSales": -amount }
         })
       )
     ]);
 
-    return res.status(200).json({ 
+    return res.status(200).json({
       success: true,
-      message: "Order deleted successfully" 
+      message: "Order deleted successfully"
     });
 
   } catch (err) {
     console.error("Delete Order Error:", err);
-    return res.status(500).json({ 
+    return res.status(500).json({
       success: false,
-      message: "Internal server error" 
+      message: "Internal server error"
     });
   }
 };
@@ -336,9 +343,9 @@ const editOrder = async (req, res) => {
 
     const { error, value } = schema.validate(req.body);
     if (error) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         success: false,
-        message: error.details[0].message 
+        message: error.details[0].message
       });
     }
 
@@ -347,24 +354,24 @@ const editOrder = async (req, res) => {
 
     const order = await Order.findById(id);
     if (!order) {
-      return res.status(404).json({ 
+      return res.status(404).json({
         success: false,
-        message: "Order not found" 
+        message: "Order not found"
       });
     }
 
     if (order.buyer.toString() !== userId) {
-      return res.status(403).json({ 
+      return res.status(403).json({
         success: false,
-        message: "Unauthorized to edit this order" 
+        message: "Unauthorized to edit this order"
       });
     }
 
     // Only allow editing if order is pending or processing
     if (!["pending", "processing"].includes(order.status)) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         success: false,
-        message: `Cannot edit order with status ${order.status}` 
+        message: `Cannot edit order with status ${order.status}`
       });
     }
 
@@ -378,17 +385,17 @@ const editOrder = async (req, res) => {
 
     await order.save();
 
-    return res.status(200).json({ 
+    return res.status(200).json({
       success: true,
       message: "Order updated successfully",
-      order 
+      order
     });
 
   } catch (err) {
     console.error("Edit Order Error:", err);
-    return res.status(500).json({ 
+    return res.status(500).json({
       success: false,
-      message: "Internal server error" 
+      message: "Internal server error"
     });
   }
 };
@@ -405,9 +412,9 @@ const changeOrderStatus = async (req, res) => {
 
     const { error, value } = schema.validate(req.body);
     if (error) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         success: false,
-        message: error.details[0].message 
+        message: error.details[0].message
       });
     }
 
@@ -418,9 +425,9 @@ const changeOrderStatus = async (req, res) => {
 
     const order = await Order.findById(id);
     if (!order) {
-      return res.status(404).json({ 
+      return res.status(404).json({
         success: false,
-        message: "Order not found" 
+        message: "Order not found"
       });
     }
 
@@ -435,7 +442,7 @@ const changeOrderStatus = async (req, res) => {
     };
 
     if (!validTransitions[order.status].includes(status)) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         success: false,
         message: `Cannot change status from ${order.status} to ${status}`,
         validNextStatuses: validTransitions[order.status]
@@ -445,14 +452,14 @@ const changeOrderStatus = async (req, res) => {
     // Check permissions
     if (userRole === "seller") {
       // Seller can only update their own items
-      const sellerItems = order.items.filter(item => 
+      const sellerItems = order.items.filter(item =>
         item.seller.toString() === userId
       );
 
       if (sellerItems.length === 0) {
-        return res.status(403).json({ 
+        return res.status(403).json({
           success: false,
-          message: "Unauthorized to update this order" 
+          message: "Unauthorized to update this order"
         });
       }
 
@@ -462,7 +469,7 @@ const changeOrderStatus = async (req, res) => {
       }
 
       // Update overall order status if all items have the same status
-      const allItemsSameStatus = order.items.every(item => 
+      const allItemsSameStatus = order.items.every(item =>
         item.status === order.items[0].status
       );
 
@@ -478,9 +485,9 @@ const changeOrderStatus = async (req, res) => {
         item.status = status;
       });
     } else {
-      return res.status(403).json({ 
+      return res.status(403).json({
         success: false,
-        message: "Unauthorized to update order status" 
+        message: "Unauthorized to update order status"
       });
     }
 
@@ -499,17 +506,17 @@ const changeOrderStatus = async (req, res) => {
 
     await order.save();
 
-    return res.status(200).json({ 
+    return res.status(200).json({
       success: true,
       message: "Order status updated successfully",
-      order 
+      order
     });
 
   } catch (err) {
     console.error("Change Order Status Error:", err);
-    return res.status(500).json({ 
+    return res.status(500).json({
       success: false,
-      message: "Internal server error" 
+      message: "Internal server error"
     });
   }
 };
@@ -533,9 +540,9 @@ const getAllOrders = async (req, res) => {
 
     const { error, value } = schema.validate(req.query);
     if (error) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         success: false,
-        message: error.details[0].message 
+        message: error.details[0].message
       });
     }
 
@@ -575,9 +582,9 @@ const getAllOrders = async (req, res) => {
 
   } catch (err) {
     console.error("Get All Orders Error:", err);
-    return res.status(500).json({ 
+    return res.status(500).json({
       success: false,
-      message: "Internal server error" 
+      message: "Internal server error"
     });
   }
 };
@@ -589,17 +596,17 @@ const adminCancelOrder = async (req, res) => {
 
     const order = await Order.findById(id);
     if (!order) {
-      return res.status(404).json({ 
+      return res.status(404).json({
         success: false,
-        message: "Order not found" 
+        message: "Order not found"
       });
     }
 
     // Only allow cancellation if order is pending or processing
     if (!["pending", "processing"].includes(order.status)) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         success: false,
-        message: `Cannot cancel order with status ${order.status}` 
+        message: `Cannot cancel order with status ${order.status}`
       });
     }
 
@@ -636,23 +643,23 @@ const adminCancelOrder = async (req, res) => {
     await Promise.all([
       order.save(),
       Product.bulkWrite(productUpdates),
-      ...Object.entries(storeUpdates).map(([storeId, amount]) => 
+      ...Object.entries(storeUpdates).map(([storeId, amount]) =>
         Store.findByIdAndUpdate(storeId, {
           $inc: { "metrics.totalSales": -amount }
         })
       )
     ]);
 
-    return res.status(200).json({ 
+    return res.status(200).json({
       success: true,
-      message: "Order cancelled successfully" 
+      message: "Order cancelled successfully"
     });
 
   } catch (err) {
     console.error("Admin Cancel Order Error:", err);
-    return res.status(500).json({ 
+    return res.status(500).json({
       success: false,
-      message: "Internal server error" 
+      message: "Internal server error"
     });
   }
 };

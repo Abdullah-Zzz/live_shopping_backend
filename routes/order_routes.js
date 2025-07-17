@@ -11,7 +11,7 @@ const { auth, isSeller, isAdmin, isBuyer } = require("../middleware/auth");
 const { authLimiter } = require("../middleware/auth_limiter");
 
 // Buyer order routes
-router.post("/", auth, isBuyer, placeOrder);
+router.post("/", auth,  placeOrder);
 router.get("/", auth, isBuyer, viewOrders);
 router.delete("/:id", auth, isBuyer, deleteOrder);
 router.put("/:id", auth, isBuyer, editOrder);

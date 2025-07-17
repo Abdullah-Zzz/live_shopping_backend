@@ -74,11 +74,6 @@ const orderSchema = new mongoose.Schema({
     default: 0,
     min: 0
   },
-  finalAmount: {
-    type: Number,
-    required: [true, "Final amount is required"],
-    min: [0.01, "Final amount must be at least 0.01"]
-  },
   shippingAddress: {
     fullName: {
       type: String,

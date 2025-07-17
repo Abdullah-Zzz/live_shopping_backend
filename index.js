@@ -20,15 +20,16 @@ const seller_management_routes = require("./routes/seller_management_routes")
 const admin_routes = require("./routes/admin_routes")
 const app = express()
 const otp_routes = require("./routes/otp_routes")
+const allowedOrigins = process.env.CLIENT_URL
 const server = http.createServer(app);
 const io = require("socket.io")(server, {
-  cors: { origin: "*",credentials: true } 
+  cors: { origin: allowedOrigins,credentials: true } 
 });
 
 app.use(express.json());
 app.use(cookie_parser())
 app.use(cors({
-    origin: "*",
+    origin: allowedOrigins,
     credentials: true
 }))
 app.use(express.urlencoded({ extended: true }));

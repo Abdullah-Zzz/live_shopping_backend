@@ -49,11 +49,6 @@ const productSchema = new mongoose.Schema({
       message: "At least one image is required"
     }
   },
-  tags: {
-    type: [String],
-    default: [],
-    index: true
-  },
   seller: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "User",
@@ -132,7 +127,6 @@ productSchema.index({ store: 1, isActive: 1 });
 productSchema.index({ "ratings.average": -1 });
 productSchema.index({ createdAt: -1 });
 
-// Pre-save hook for original price and discount
 productSchema.pre("save", function(next) {
   if (this.isModified("price") && !this.originalPrice) {
     this.originalPrice = this.price;

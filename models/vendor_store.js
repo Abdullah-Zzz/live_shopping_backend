@@ -7,20 +7,17 @@ const storeSchema = new mongoose.Schema(
       ref: "User",
       required: [true, "Seller reference is required"],
       unique: true,
-      index: true
     },
     storeName: {
       type: String,
       required: [true, "Store name is required"],
       trim: true,
       maxlength: [50, "Store name cannot exceed 50 characters"],
-      index: true
     },
     slug: {
       type: String,
       unique: true,
       lowercase: true,
-      index: true
     },
     products: [{
       type: mongoose.Schema.Types.ObjectId,
@@ -123,7 +120,6 @@ storeSchema.pre("save", function(next) {
   next();
 });
 
-// Method to update store metrics
 storeSchema.methods.updateMetrics = async function() {
   const Product = mongoose.model("Product");
   const Review = mongoose.model("Review");
