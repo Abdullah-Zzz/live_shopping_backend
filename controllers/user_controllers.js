@@ -303,13 +303,13 @@ const logout = async (req, res) => {
     res.clearCookie("refresh_token", {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
-      sameSite: "strict"
+      sameSite: "None"
     });
 
     res.clearCookie("access_token", {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
-      sameSite: "strict"
+      sameSite: "None"
     });
 
     return res.status(200).json({ 
@@ -492,7 +492,7 @@ const refreshAccessToken = async (req, res) => {
     res.cookie("access_token", newAccessToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
+      sameSite: "None",
       maxAge: 15 * 60 * 1000
     });
 

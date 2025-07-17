@@ -28,8 +28,8 @@ const googleLogin = async (req, res) => {
     const accessToken = jwt.sign({ id: user._id, email: user.email, role:user.role, }, process.env.JWT_ACCESS_SECRET, { expiresIn: "15m" });
     const refreshToken = jwt.sign({ id: user._id, email: user.email, role:user.role }, process.env.JWT_REFRESH_SECRET, { expiresIn: "7d" });
 
-    res.cookie("access_token", accessToken, { httpOnly: true, sameSite: "strict", secure: true });
-    res.cookie("refresh_token", refreshToken, { httpOnly: true, sameSite: "strict", secure: true });
+    res.cookie("access_token", accessToken, { httpOnly: true, sameSite: "None", secure: true });
+    res.cookie("refresh_token", refreshToken, { httpOnly: true, sameSite: "None", secure: true });
 
     return res.status(200).json({ message: "Logged in with Google", user });
 
