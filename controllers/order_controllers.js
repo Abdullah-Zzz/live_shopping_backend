@@ -47,11 +47,16 @@ const placeOrder = async (req, res) => {
     let totalAmount = 0;
     const verifiedItems = [];
     const productUpdates = [];
-    const storeUpdates = new Map();
 
     for (const item of items) {
       const product = await Product.findById(item.productId).populate("store", "_id seller");
-
+      const store = await Store.findById(product.store._id)
+      if(!store){
+        return res.status(409).json({
+          success: false,
+          message: `Seller has no store`
+        });
+      }
       if (!product) {
         return res.status(404).json({
           success: false,
@@ -74,8 +79,9 @@ const placeOrder = async (req, res) => {
       }
 
       const itemTotal = product.price * item.quantity;
+      
       totalAmount += itemTotal;
-
+      store.orders.push({product : product._id , quantity: item.quantity, amount : totalAmount,buyer:req.user.id })
       verifiedItems.push({
         product: product._id,
         price: product.price,
@@ -94,23 +100,7 @@ const placeOrder = async (req, res) => {
           update: { $inc: { stock: -item.quantity } }
         }
       });
-
-      if (!storeUpdates.has(product.store._id.toString())) {
-        storeUpdates.set(product.store._id.toString(), {
-          storeId: product.store._id,
-          sellerId: product.store.seller,
-          amount: 0,
-          items: []
-        });
-      }
-
-      const storeUpdate = storeUpdates.get(product.store._id.toString());
-      storeUpdate.amount += itemTotal;
-      storeUpdate.items.push({
-        product: product._id,
-        quantity: item.quantity,
-        price: product.price
-      });
+      await store.save()
     }
 
     const orderData = {
@@ -663,6 +653,28 @@ const adminCancelOrder = async (req, res) => {
     });
   }
 };
+const getSellerOrders = async (req,res)=>{
+  try{
+    const id = req.user.id
+    const store = await Store.find({seller:id})
+    if(!store){
+      return res.status(409).json({
+        success : false,
+        message : "You have no Store, please get a verified store first"
+      })
+    }
+    const orders = store.orders
+    const data = {}
+
+  }
+  catch (err) {
+    console.error("Get Seller Order Error:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error"
+    });
+  }
+}
 
 module.exports = {
   placeOrder,

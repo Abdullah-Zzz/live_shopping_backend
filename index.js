@@ -18,6 +18,7 @@ const chatRoutes = require("./routes/chat_routes");
 const pay_routes = require("./routes/payU_routes")
 const seller_management_routes = require("./routes/seller_management_routes")
 const admin_routes = require("./routes/admin_routes")
+const store_routes = require("./routes/store_routes")
 const app = express()
 const otp_routes = require("./routes/otp_routes")
 const allowedOrigins = process.env.CLIENT_URL
@@ -45,6 +46,7 @@ app.use("/api/payu", pay_routes);
 app.use("/api",otp_routes)
 app.use("/api",seller_management_routes)
 app.use("/api/admin",admin_routes)
+app.use("/api/store",store_routes)
 
 
 require("./socket/chat")(io);

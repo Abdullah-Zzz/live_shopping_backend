@@ -14,7 +14,7 @@ const { auth, isSeller, isAdmin, isBuyer } = require("../middleware/auth");
 // Public product routes
 router.get("/", retrieveProducts);
 router.get("/:id", getProductById);
-router.get("/seller/:sellerId", getSellerProducts);
+router.get("/:sellerId", getSellerProducts);
 
 // Seller product routes
 router.get("/seller/my-products", auth, isSeller, getCurrentSellerProducts);

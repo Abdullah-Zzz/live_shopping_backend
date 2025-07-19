@@ -6,83 +6,127 @@ const storeSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       required: [true, "Seller reference is required"],
-      unique: true,
+      unique: true
     },
     storeName: {
       type: String,
       required: [true, "Store name is required"],
       trim: true,
-      maxlength: [50, "Store name cannot exceed 50 characters"],
+      maxlength: [50, "Store name cannot exceed 50 characters"]
     },
     slug: {
       type: String,
       unique: true,
       lowercase: true,
+      trim: true
     },
-    products: [{
-      type: mongoose.Schema.Types.ObjectId,
+    products: {
+      type: [mongoose.Schema.Types.ObjectId],
       ref: "Product",
       default: []
-    }],
-    orders: [{
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Order",
+    },
+    orders: {
+      type: [
+        {
+          buyer: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "User",
+            required: true
+          },
+          product: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "Product",
+            required: true
+          },
+          quantity: {
+            type: Number,
+            required: true,
+            min: [1, "Quantity must be at least 1"]
+          },
+          order: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "Order",
+            required: true
+          },
+          amount: {
+            type: Number,
+            required: true,
+            min: [0.01, "Amount must be at least 0.01"]
+          }
+        }
+      ],
       default: []
-    }],
+    },
     description: {
       type: String,
+      trim: true,
       maxlength: [1000, "Description cannot exceed 1000 characters"]
     },
     contact: {
       email: {
         type: String,
+        trim: true,
         match: [/\S+@\S+\.\S+/, "Please use a valid email address"]
       },
       phone: {
         type: String,
-        required: [true, "Contact phone is required"]
+        required: [true, "Contact phone is required"],
+        trim: true
       },
-      whatsapp: String,
-      website: String
+      whatsapp: {
+        type: String,
+        trim: true
+      },
+      website: {
+        type: String,
+        trim: true
+      }
     },
-    address: String,
+    address: {
+      type: String,
+      trim: true
+    },
     media: {
       logo: {
-        public_id: String,
-        url: { type: String, default: "default_logo_url.jpg" }
+        public_id: { type: String, trim: true },
+        url: {
+          type: String,
+          default: "default_logo_url.jpg",
+          trim: true
+        }
       },
       banner: {
-        public_id: String,
-        url: String
+        public_id: { type: String, trim: true },
+        url: { type: String, trim: true }
       }
     },
     socialMedia: {
-      facebook: String,
-      instagram: String,
-      twitter: String,
-      youtube: String,
-      tiktok: String
+      facebook: { type: String, trim: true },
+      instagram: { type: String, trim: true },
+      twitter: { type: String, trim: true },
+      youtube: { type: String, trim: true },
+      tiktok: { type: String, trim: true }
     },
     businessInfo: {
       bankDetails: {
-        accountName: { type: String, select: false },
-        accountNumber: { type: String, select: false },
-        bankName: { type: String, select: false },
-        iban: { type: String, select: false }
+        accountName: { type: String, select: false, trim: true },
+        accountNumber: { type: String, select: false, trim: true },
+        bankName: { type: String, select: false, trim: true },
+        iban: { type: String, select: false, trim: true }
       },
       taxInfo: {
-        taxId: { type: String, select: false },
-        vatNumber: { type: String, select: false }
+        taxId: { type: String, select: false, trim: true },
+        vatNumber: { type: String, select: false, trim: true }
       }
     },
     metrics: {
       totalProducts: { type: Number, default: 0 },
       totalSales: { type: Number, default: 0 },
-      averageRating: { 
-        type: Number, 
-        default: 0, 
-        min: 0, 
-        max: 5 
+      averageRating: {
+        type: Number,
+        default: 0,
+        min: 0,
+        max: 5
       },
       totalReviews: { type: Number, default: 0 }
     },
@@ -100,7 +144,10 @@ const storeSchema = new mongoose.Schema(
       enum: ["pending", "verified", "rejected"],
       default: "pending"
     },
-    verificationNotes: String
+    verificationNotes: {
+      type: String,
+      trim: true
+    }
   },
   {
     timestamps: true,
@@ -109,38 +156,43 @@ const storeSchema = new mongoose.Schema(
   }
 );
 
-// Pre-save hook for slug generation
-storeSchema.pre("save", function(next) {
+// Slug generation hook
+storeSchema.pre("save", function (next) {
   if (!this.isModified("storeName")) return next();
 
   this.slug = this.storeName
     .toLowerCase()
+    .trim()
     .replace(/[^\w ]+/g, "")
     .replace(/ +/g, "-");
+
   next();
 });
 
-storeSchema.methods.updateMetrics = async function() {
+// Update store metrics from associated models
+storeSchema.methods.updateMetrics = async function () {
   const Product = mongoose.model("Product");
   const Review = mongoose.model("Review");
 
   const [productCount, reviews] = await Promise.all([
     Product.countDocuments({ store: this._id }),
-    Review.find({ "product.store": this._id })
+    Review.find({ "product.store": this._id }) // Make sure this path is indexed
   ]);
 
   this.metrics.totalProducts = productCount;
   this.metrics.totalReviews = reviews.length;
 
   if (reviews.length > 0) {
-    const avgRating = reviews.reduce((sum, review) => sum + review.rating, 0) / reviews.length;
+    const avgRating =
+      reviews.reduce((sum, review) => sum + review.rating, 0) /
+      reviews.length;
     this.metrics.averageRating = parseFloat(avgRating.toFixed(1));
   }
 
   await this.save();
 };
 
-// Indexes
+// Indexes for performance
 storeSchema.index({ slug: 1 });
 storeSchema.index({ seller: 1 });
 storeSchema.index({ "metrics.averageRating": -1 });
