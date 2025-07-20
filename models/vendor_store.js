@@ -147,7 +147,14 @@ const storeSchema = new mongoose.Schema(
     verificationNotes: {
       type: String,
       trim: true
-    }
+    },
+    // Followers: users who follow this store
+    followers: {
+      type: [mongoose.Schema.Types.ObjectId],
+      ref: "User",
+      default: []
+    },
+    followerCount: { type: Number, default: 0 }
   },
   {
     timestamps: true,

@@ -220,6 +220,7 @@ const end_live = async (req, res) => {
     }
 };
 
+// Enhanced active_live to allow filtering by store, seller, or tags, and populate store and featuredProducts
 const active_live = async (req, res) => {
     try {
         const errors = validationResult(req);
@@ -228,10 +229,13 @@ const active_live = async (req, res) => {
         }
 
         const lang = req.params.lang;
+        const { storeId, sellerId, tags } = req.query;
 
         const query = {
             status: 'live',
-            ...(lang && { language: lang })
+            ...(lang && { language: lang }),
+            ...(storeId && { store: storeId }),
+            ...(sellerId && { seller: sellerId })
         };
 
         const page = parseInt(req.query.page) || 1;
@@ -242,9 +246,19 @@ const active_live = async (req, res) => {
             .skip((page - 1) * limit)
             .limit(limit)
             .populate('seller', 'name sellerInfo')
-            .populate('featuredProducts', 'name category price images tags')
+            .populate('store', 'storeName slug followerCount')
+            .populate({
+                path: 'featuredProducts',
+                select: 'name category price images tags auction',
+                match: tags ? { tags: { $in: Array.isArray(tags) ? tags : [tags] } } : {}
+            })
             .lean();
         const total = await live_schema.countDocuments(query);
+
+        // Filter out sessions with no featuredProducts if tags filter is applied
+        if (tags) {
+            live_sessions = live_sessions.filter(session => session.featuredProducts && session.featuredProducts.length > 0);
+        }
 
         res.set('Cache-Control', 'public, max-age=30');
 
@@ -272,12 +286,46 @@ const active_live = async (req, res) => {
     }
 };
 
+// Endpoint to get all live sessions for a store
+const getStoreLiveSessions = async (req, res) => {
+    try {
+        const { storeId } = req.params;
+        const sessions = await live_schema.find({ store: storeId })
+            .populate('seller', 'name sellerInfo')
+            .populate('store', 'storeName slug followerCount')
+            .populate('featuredProducts', 'name category price images tags auction')
+            .lean();
+        return res.status(200).json({ success: true, sessions });
+    } catch (err) {
+        console.error('Get Store Live Sessions Error:', err);
+        return res.status(500).json({ success: false, message: 'Internal server error' });
+    }
+};
+
+// Endpoint to get all live sessions for a seller
+const getSellerLiveSessions = async (req, res) => {
+    try {
+        const { sellerId } = req.params;
+        const sessions = await live_schema.find({ seller: sellerId })
+            .populate('seller', 'name sellerInfo')
+            .populate('store', 'storeName slug followerCount')
+            .populate('featuredProducts', 'name category price images tags auction')
+            .lean();
+        return res.status(200).json({ success: true, sessions });
+    } catch (err) {
+        console.error('Get Seller Live Sessions Error:', err);
+        return res.status(500).json({ success: false, message: 'Internal server error' });
+    }
+};
+
 module.exports = {
     generate_zego_token,
     initiate_live,
     start_live,
     end_live,
     active_live,
+    getStoreLiveSessions,
+    getSellerLiveSessions,
     validateInitiateLive,
     validatePagination,
     apiLimiter

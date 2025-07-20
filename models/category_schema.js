@@ -12,6 +12,7 @@ const categorySchema = new mongoose.Schema({
   },
   icon: String, 
   description: String,
+  banner: { type: String },
   createdAt: {
     type: Date,
     default: Date.now,

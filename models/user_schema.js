@@ -17,9 +17,29 @@ const userSchema = new mongoose.Schema(
       lowercase: true,
       match: [/\S+@\S+\.\S+/, "Please use a valid email address"]
     },
+    emailVerified: {
+      type: Boolean,
+      default: false,
+    },
     phone: {
       type: String,
-      match: [/^\+?[0-9]{10,15}$/, "Please use a valid phone number"]
+      match: [/^\+?[0-9]{10,15}$/, "Please use a valid phone number"],
+      default: "",
+    },
+    phoneVerified: {
+      type: Boolean,
+      default: false,
+    },
+    blocked: {
+      type: Boolean,
+      default: false,
+    },
+    bio: {
+      type: String,
+      default: "",
+    },
+    dateOfBirth: {
+      type: Date,
     },
     password: {
       type: String,
@@ -45,39 +65,40 @@ const userSchema = new mongoose.Schema(
       default: true
     },
     avatar: {
-      public_id: String,
-      url: String
+      url: { type: String, default: "" },
     },
     sellerInfo: {
       shopName: {
         type: String,
-        required: function() { return this.role === "seller"; }
+        required: function() { return this.role === "seller"; },
+        default: "",
       },
-      description: String,
+      description: { type: String, default: "" },
       logo: {
-        public_id: String,
-        url: String
+        public_id: { type: String, default: "" },
+        url: { type: String, default: "" }
       },
       address: {
         type: String,
-        required: function() { return this.role === "seller"; }
+        required: function() { return this.role === "seller"; },
+        default: "",
       },
       contact: {
-        phone: String,
-        whatsapp: String,
-        website: String
+        phone: { type: String, default: "" },
+        whatsapp: { type: String, default: "" },
+        website: { type: String, default: "" }
       },
       socialMedia: {
-        facebook: String,
-        instagram: String,
-        twitter: String,
-        youtube: String
+        facebook: { type: String, default: "" },
+        instagram: { type: String, default: "" },
+        twitter: { type: String, default: "" },
+        youtube: { type: String, default: "" }
       },
       paymentInfo: {
-        bankName: String,
-        accountNumber: String,
-        accountName: String,
-        taxId: String
+        bankName: { type: String, default: "" },
+        accountNumber: { type: String, default: "" },
+        accountName: { type: String, default: "" },
+        taxId: { type: String, default: "" }
       },
       rating: {
         type: Number,
@@ -86,7 +107,7 @@ const userSchema = new mongoose.Schema(
         default: 0
       }
     },
-    resetPasswordToken: String,
+    resetPasswordToken: { type: String, default: "" },
     resetPasswordExpire: Date,
     lastLogin: Date
   },

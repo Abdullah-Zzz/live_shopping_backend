@@ -15,7 +15,10 @@ const retrieveProducts = async (req, res) => {
       minPrice: Joi.number().min(0),
       maxPrice: Joi.number().min(0),
       search: Joi.string(),
-      isActive: Joi.boolean()
+      isActive: Joi.boolean(),
+      tags: Joi.array().items(Joi.string()),
+      liveSession: Joi.string(),
+      isAuction: Joi.boolean()
     });
 
     const { error, value } = schema.validate(req.query);
@@ -36,7 +39,10 @@ const retrieveProducts = async (req, res) => {
       minPrice, 
       maxPrice, 
       search,
-      isActive
+      isActive,
+      tags,
+      liveSession,
+      isAuction
     } = value;
 
     const filter = {};
@@ -51,6 +57,15 @@ const retrieveProducts = async (req, res) => {
     if (search) {
       filter.$text = { $search: search };
     }
+    if (tags && tags.length) {
+      filter.tags = { $in: tags };
+    }
+    if (liveSession) {
+      filter.liveSession = liveSession;
+    }
+    if (typeof isAuction !== "undefined") {
+      filter["auction.isAuction"] = isAuction;
+    }
 
     const sortOption = { [sortBy]: order === "asc" ? 1 : -1 };
 
@@ -60,7 +75,9 @@ const retrieveProducts = async (req, res) => {
         .skip((page - 1) * limit)
         .limit(limit)
         .populate("seller", "name avatar sellerInfo")
-        .populate("store", "storeName slug"),
+        .populate("store", "storeName slug")
+        .populate("liveSession", "title status startTime endTime")
+      ,
       Product.countDocuments(filter)
     ]);
 
@@ -141,7 +158,8 @@ const getProductById = async (req, res) => {
 
     const product = await Product.findById(id)
       .populate("seller", "name avatar sellerInfo")
-      .populate("store", "storeName slug");
+      .populate("store", "storeName slug")
+      .populate("liveSession", "title status startTime endTime");
 
     if (!product) {
       return res.status(404).json({ 
@@ -232,7 +250,6 @@ const addProduct = async (req, res) => {
       originalPrice: Joi.number().min(0.01),
       category: Joi.array().items(Joi.string()).min(1).required(),
       images: Joi.array().items(Joi.string().uri()).min(1).required(),
-      tags: Joi.array().items(Joi.string()),
       stock: Joi.number().integer().min(0).default(0),
       isActive: Joi.boolean().default(true),
       specifications: Joi.array().items(
@@ -249,6 +266,15 @@ const addProduct = async (req, res) => {
           height: Joi.number().min(0)
         }),
         shippingClass: Joi.string()
+      }),
+      tags: Joi.array().items(Joi.string()),
+      liveSession: Joi.string(),
+      auction: Joi.object({
+        isAuction: Joi.boolean().default(false),
+        startingPrice: Joi.number().min(0),
+        currentBid: Joi.number().min(0),
+        currentBidder: Joi.string(),
+        endTime: Joi.date()
       })
     });
 
@@ -267,11 +293,13 @@ const addProduct = async (req, res) => {
       originalPrice,
       category, 
       images, 
-      tags, 
       stock,
       isActive,
       specifications,
-      shippingInfo
+      shippingInfo,
+      tags,
+      liveSession,
+      auction
     } = value;
 
     // Check if seller has a store
@@ -290,11 +318,13 @@ const addProduct = async (req, res) => {
       originalPrice: originalPrice || price,
       category,
       images,
-      tags: tags || [],
       stock,
       isActive,
       seller: req.user.id,
-      store: store._id
+      store: store._id,
+      tags: tags || [],
+      liveSession: liveSession || undefined,
+      auction: auction || undefined
     };
 
     if (specifications) {
@@ -355,7 +385,7 @@ const editProduct = async (req, res) => {
           height: Joi.number().min(0)
         }),
         shippingClass: Joi.string()
-      })
+      }),
     });
 
     const { error, value } = schema.validate(req.body);
@@ -388,7 +418,7 @@ const editProduct = async (req, res) => {
       id, 
       { $set: value }, 
       { new: true }
-    );
+    ).populate("liveSession", "title status startTime endTime");
 
     return res.status(200).json({ 
       success: true,

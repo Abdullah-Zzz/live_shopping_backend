@@ -34,7 +34,7 @@ const registerUser = async (req, res) => {
     const schema = Joi.object({
       name: Joi.string().min(3).max(30).required(),
       email: Joi.string().email().required(),
-      phone: Joi.string().pattern(/^\+?[0-9]{10,15}$/).required(),
+      phone: Joi.string().pattern(/^[+]?\d{10,15}$/).required(),
       password: Joi.string().min(8)
         .pattern(/^(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()])/)
         .required(),
@@ -50,7 +50,9 @@ const registerUser = async (req, res) => {
       address: Joi.string().when("role", { 
         is: "seller", 
         then: Joi.string().min(5).max(200).required() 
-      })
+      }),
+      bio: Joi.string().max(200).optional(),
+      dateOfBirth: Joi.date().optional()
     });
 
     const { error } = schema.validate(req.body);
@@ -61,7 +63,7 @@ const registerUser = async (req, res) => {
       });
     }
 
-    const { name, email, password, role, phone, shopName, description, address } = req.body;
+    const { name, email, password, role, phone, shopName, description, address, bio, dateOfBirth } = req.body;
 
     const userExists = await User.findOne({ email });
     if (userExists) {
@@ -78,7 +80,12 @@ const registerUser = async (req, res) => {
       phone,
       password: hashedPassword,
       role,
-      isProfileComplete: role === "buyer" // Sellers need to complete profile
+      isProfileComplete: role === "buyer", // Sellers need to complete profile
+      emailVerified: false,
+      phoneVerified: false,
+      blocked: false,
+      bio: bio || "",
+      dateOfBirth: dateOfBirth || undefined
     };
 
     if (role === "seller") {
@@ -154,6 +161,7 @@ const verifyUser = async (req, res) => {
     }
 
     const user = new User(decoded);
+    user.emailVerified = true;
     await user.save();
     await RegisterToken.deleteOne({ token });
 
@@ -215,6 +223,13 @@ const loginUser = async (req, res) => {
       return res.status(403).json({ 
         success: false,
         message: "Account is deactivated" 
+      });
+    }
+
+    if (user.blocked) {
+      return res.status(403).json({ 
+        success: false,
+        message: "Account is blocked. Please contact support." 
       });
     }
 
@@ -515,7 +530,7 @@ const completeProfile = async (req, res) => {
   try {
     const schema = Joi.object({
       role: Joi.string().valid("buyer", "seller").required(),
-      phone: Joi.string().pattern(/^\+?[0-9]{10,15}$/).required(),
+      phone: Joi.string().pattern(/^[+]?\d{10,15}$/).required(),
       shopName: Joi.when("role", {
         is: "seller",
         then: Joi.string().min(2).max(50).required(),
@@ -530,7 +545,9 @@ const completeProfile = async (req, res) => {
         is: "seller",
         then: Joi.string().min(5).max(200).required(),
         otherwise: Joi.forbidden()
-      })
+      }),
+      bio: Joi.string().max(200).optional(),
+      dateOfBirth: Joi.date().optional()
     });
 
     const { error } = schema.validate(req.body);
@@ -542,7 +559,7 @@ const completeProfile = async (req, res) => {
     }
 
     const userId = req.user.id;
-    const { role, phone, shopName, description, address } = req.body;
+    const { role, phone, shopName, description, address, bio, dateOfBirth } = req.body;
 
     const user = await User.findById(userId);
     if (!user) {
@@ -562,7 +579,9 @@ const completeProfile = async (req, res) => {
     const updateData = { 
       role, 
       phone, 
-      isProfileComplete: true 
+      isProfileComplete: true,
+      bio: bio || user.bio,
+      dateOfBirth: dateOfBirth || user.dateOfBirth
     };
 
     if (role === "seller") {
@@ -599,7 +618,9 @@ const editBuyerProfile = async (req, res) => {
   try {
     const schema = Joi.object({
       name: Joi.string().min(2).max(50).required(),
-      phone: Joi.string().pattern(/^\+?[0-9]{10,15}$/).required()
+      phone: Joi.string().pattern(/^[+]?\d{10,15}$/).required(),
+      bio: Joi.string().max(200).optional(),
+      dateOfBirth: Joi.date().optional()
     });
 
     const { error } = schema.validate(req.body);
@@ -611,11 +632,11 @@ const editBuyerProfile = async (req, res) => {
     }
 
     const userId = req.user.id;
-    const { name, phone } = req.body;
+    const { name, phone, bio, dateOfBirth } = req.body;
 
     const updatedUser = await User.findByIdAndUpdate(
       userId,
-      { name, phone },
+      { name, phone, bio: bio || "", dateOfBirth: dateOfBirth || undefined },
       { new: true }
     ).select("-password");
 
@@ -646,7 +667,7 @@ const editSellerProfile = async (req, res) => {
   try {
     const schema = Joi.object({
       name: Joi.string().min(2).max(50).required(),
-      phone: Joi.string().pattern(/^\+?[0-9]{10,15}$/).required(),
+      phone: Joi.string().pattern(/^[+]?\d{10,15}$/).required(),
       shopName: Joi.string().min(2).max(50).required(),
       description: Joi.string().min(10).max(200).required(),
       address: Joi.string().min(5).max(200).required(),
@@ -662,7 +683,9 @@ const editSellerProfile = async (req, res) => {
         accountNumber: Joi.string().required(),
         accountName: Joi.string().required(),
         taxId: Joi.string().optional()
-      }).optional()
+      }).optional(),
+      bio: Joi.string().max(200).optional(),
+      dateOfBirth: Joi.date().optional()
     });
 
     const { error } = schema.validate(req.body);
@@ -682,12 +705,16 @@ const editSellerProfile = async (req, res) => {
       address,
       logo,
       socialMedia,
-      paymentInfo
+      paymentInfo,
+      bio,
+      dateOfBirth
     } = req.body;
 
     const updateData = {
       name,
       phone,
+      bio: bio || "",
+      dateOfBirth: dateOfBirth || undefined,
       sellerInfo: {
         shopName,
         description,

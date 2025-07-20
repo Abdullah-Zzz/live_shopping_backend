@@ -93,6 +93,22 @@ const productSchema = new mongoose.Schema({
     type: Boolean,
     default: false
   },
+  tags: {
+    type: [String],
+    default: [],
+    index: true
+  },
+  liveSession: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "live_sessions"
+  },
+  auction: {
+    isAuction: { type: Boolean, default: false },
+    startingPrice: { type: Number, min: 0 },
+    currentBid: { type: Number, min: 0 },
+    currentBidder: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+    endTime: Date
+  },
   specifications: [{
     key: String,
     value: String

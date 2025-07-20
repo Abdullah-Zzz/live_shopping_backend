@@ -23,6 +23,7 @@ const add_item = async (req, res) => {
       cart = new cart_schema({
         user: user_ID,
         items: [{ product: prod_id, quantity }],
+        history: [{ action: "add", product: prod_id, quantity, timestamp: new Date() }]
       });
     } else {
       const existingItem = cart.items.find((item) =>
@@ -33,6 +34,7 @@ const add_item = async (req, res) => {
         return res.status(400).json({ message: "Item Already In Cart" })
       } else {
         cart.items.push({ product: prod_id, quantity });
+        cart.history.push({ action: "add", product: prod_id, quantity, timestamp: new Date() });
       }
     }
 
@@ -66,6 +68,7 @@ const remove_item = async (req, res) => {
     }
 
     user_cart.items = user_cart.items.filter(item => item.product.toString() !== prod_id);
+    user_cart.history.push({ action: "remove", product: prod_id, quantity: 0, timestamp: new Date() });
 
     await user_cart.save();
 
@@ -104,6 +107,7 @@ const update_quantity = async (req, res) => {
     }
 
     user_cart.items[itemIndex].quantity = quantity;
+    user_cart.history.push({ action: "update", product: prod_id, quantity, timestamp: new Date() });
 
     await user_cart.save();
 
@@ -135,7 +139,7 @@ const view_items = async (req, res) => {
       ratings : item.product.ratings
     }));
 
-    return res.status(200).json({ items });
+    return res.status(200).json({ items, history: cart.history });
 
   } catch (err) {
     console.error("View Cart Error:", err);
@@ -152,6 +156,7 @@ const clear_cart = async (req, res) => {
     }
 
     cart.items = [];
+    cart.history.push({ action: "clear", product: null, quantity: 0, timestamp: new Date() });
     await cart.save();
 
     return res.status(200).json({ message: "Cart emptied successfully." });
@@ -161,11 +166,26 @@ const clear_cart = async (req, res) => {
   }
 };
 
+// Endpoint to get cart history
+const get_cart_history = async (req, res) => {
+  try {
+    const user_id = new mongoose.Types.ObjectId(req.user.id);
+    const cart = await cart_schema.findOne({ user: user_id });
+    if (!cart) {
+      return res.status(404).json({ message: "Cart not found." });
+    }
+    return res.status(200).json({ history: cart.history });
+  } catch (err) {
+    console.error("Get Cart History Error:", err);
+    return res.status(500).json({ message: "Server error." });
+  }
+};
 
 module.exports = {
   add_item,
   remove_item,
   update_quantity,
   view_items,
-  clear_cart
+  clear_cart,
+  get_cart_history
 }

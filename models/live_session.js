@@ -1,7 +1,8 @@
 const mongoose = require("mongoose")
 
 const streamSessionSchema = new mongoose.Schema({
-  seller: { type: mongoose.Schema.Types.ObjectId, ref: 'users', required: true },
+  seller: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  store: { type: mongoose.Schema.Types.ObjectId, ref: 'Store' },
   zegoRoomId: { type: String, required: true, unique: true },
   title: String,
   language : {

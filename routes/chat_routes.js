@@ -27,7 +27,11 @@ const validateGetMessages = [
   }
 ];
 
+// Start or get chat
 router.post("/start", auth,isBuyer, validateStartOrGetChat, chatController.startOrGetChat);
+// Get messages for a chat
 router.get("/:chatId/messages", auth,isBuyer, validateGetMessages, chatController.getMessages);
+// Send a message (text, image, system)
+router.post("/send", auth, chatController.sendMessage);
 
 module.exports = router;
