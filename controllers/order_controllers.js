@@ -47,41 +47,23 @@ const placeOrder = async (req, res) => {
     let totalAmount = 0;
     const verifiedItems = [];
     const productUpdates = [];
+    const storeUpdates = new Map(); // key = storeId
 
     for (const item of items) {
       const product = await Product.findById(item.productId).populate("store", "_id seller");
-      const store = await Store.findById(product.store._id)
-      if(!store){
-        return res.status(409).json({
-          success: false,
-          message: `Seller has no store`
-        });
-      }
-      if (!product) {
-        return res.status(404).json({
-          success: false,
-          message: `Product ${item.productId} not found`
-        });
+      const store = await Store.findById(product.store._id);
+
+      if (!store) {
+        return res.status(409).json({ success: false, message: `Seller has no store` });
       }
 
-      if (!product.isActive) {
-        return res.status(400).json({
-          success: false,
-          message: `Product ${product.name} is not available`
-        });
-      }
-
-      if (product.stock < item.quantity) {
-        return res.status(400).json({
-          success: false,
-          message: `Not enough stock for ${product.name}`
-        });
+      if (!product || !product.isActive || product.stock < item.quantity) {
+        return res.status(400).json({ success: false, message: `Product ${product.name} error` });
       }
 
       const itemTotal = product.price * item.quantity;
-      
       totalAmount += itemTotal;
-      store.orders.push({product : product._id , quantity: item.quantity, amount : totalAmount,buyer:req.user.id })
+
       verifiedItems.push({
         product: product._id,
         price: product.price,
@@ -100,8 +82,19 @@ const placeOrder = async (req, res) => {
           update: { $inc: { stock: -item.quantity } }
         }
       });
-      await store.save()
+
+      if (!storeUpdates.has(store._id.toString())) {
+        storeUpdates.set(store._id.toString(), []);
+      }
+
+      storeUpdates.get(store._id.toString()).push({
+        product: product._id,
+        quantity: item.quantity,
+        amount: itemTotal,
+        buyer: req.user.id
+      });
     }
+
 
     const orderData = {
       buyer: buyerId,
@@ -137,13 +130,25 @@ const placeOrder = async (req, res) => {
     const order = new Order(orderData);
     await order.save();
 
+    await Product.bulkWrite(productUpdates);
+
+    for (const [storeId, items] of storeUpdates.entries()) {
+      const orderEntries = items.map(entry => ({
+        order: order._id, // ⬅️ attach order ID
+        ...entry
+      }));
+
+      await Store.findByIdAndUpdate(storeId, {
+        $push: { orders: { $each: orderEntries } }
+      });
+    }
+
     if (payment.method === "cash_on_delivery") {
       await Product.bulkWrite(productUpdates);
-
-      for (const [, storeUpdate] of storeUpdates) {
-        await Store.findByIdAndUpdate(storeUpdate.storeId, {
-          $push: { orders: order._id },
-          $inc: { "metrics.totalSales": storeUpdate.amount }
+      for (const [storeId, entries] of storeUpdates.entries()) {
+        const totalAmountForStore = entries.reduce((sum, item) => sum + item.amount, 0);
+        await Store.findByIdAndUpdate(storeId, {
+          $inc: { "metrics.totalSales": totalAmountForStore }
         });
       }
 
@@ -653,14 +658,14 @@ const adminCancelOrder = async (req, res) => {
     });
   }
 };
-const getSellerOrders = async (req,res)=>{
-  try{
+const getSellerOrders = async (req, res) => {
+  try {
     const id = req.user.id
-    const store = await Store.find({seller:id})
-    if(!store){
+    const store = await Store.find({ seller: id })
+    if (!store) {
       return res.status(409).json({
-        success : false,
-        message : "You have no Store, please get a verified store first"
+        success: false,
+        message: "You have no Store, please get a verified store first"
       })
     }
     const orders = store.orders
@@ -676,12 +681,52 @@ const getSellerOrders = async (req,res)=>{
   }
 }
 
+const getOrderDetails = async (req, res) => {
+  try {
+    const orderId = req.params.id;
+    if (!orderId) {
+      return res.status(400).json({
+        success: false,
+        message: "Order ID is required"
+      });
+    }
+
+    const order = await Order.findById(orderId)
+      .populate("buyer", "name email phone")
+      .populate("items.product", "name images price")
+      .populate("items.seller", "name")
+      .populate("items.store", "name");
+    console.log(order)
+
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        message: "Order not found"
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: order
+    });
+  } catch (err) {
+    console.error("Get Order details Error:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error"
+    });
+  }
+};
+
+
 module.exports = {
   placeOrder,
   viewOrders,
   deleteOrder,
   editOrder,
   changeOrderStatus,
+  getSellerOrders,
   getAllOrders,
-  adminCancelOrder
+  adminCancelOrder,
+  getOrderDetails
 };

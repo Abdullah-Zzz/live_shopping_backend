@@ -5,7 +5,8 @@ const {
   viewOrders,
   deleteOrder,
   editOrder,
-  changeOrderStatus
+  changeOrderStatus,
+  getOrderDetails
 } = require("../controllers/order_controllers");
 const { auth, isSeller, isAdmin, isBuyer } = require("../middleware/auth");
 const { authLimiter } = require("../middleware/auth_limiter");
@@ -18,5 +19,6 @@ router.put("/:id", auth, isBuyer, editOrder);
 
 // Seller order routes
 router.put("/:id/status", auth, isSeller, changeOrderStatus);
+router.get("/get/:id",auth,isSeller,getOrderDetails)
 
 module.exports = router;

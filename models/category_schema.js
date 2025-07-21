@@ -10,9 +10,15 @@ const categorySchema = new mongoose.Schema({
     type: String,
     unique: true,
   },
-  icon: String, 
+  tax : {
+    type :Number,
+    required: true
+  },
+  icon: {
+    type:String,
+    default : "default.jpg"
+  }, 
   description: String,
-  banner: { type: String },
   createdAt: {
     type: Date,
     default: Date.now,
